@@ -1,0 +1,10 @@
+name: snemovni-dopady
+title:
+username: dopady
+account: dopady
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 17172225
+bundleId: 11985060
+url: https://dopady.shinyapps.io/snemovni-dopady/
+version: 1

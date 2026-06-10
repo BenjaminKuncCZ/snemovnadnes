@@ -1,0 +1,10 @@
+﻿.Renviron
+data/pdfs/
+data/stanoviska/
+data/*.log
+data/heartbeat.log
+.Rhistory
+.RData
+.Rproj.user/
+.DS_Store
+Thumbs.db
