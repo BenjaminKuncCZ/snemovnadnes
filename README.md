@@ -13,7 +13,7 @@ Automatický monitoring legislativních materiálů projednávaných v Poslaneck
 ## Architektura
 
 - **Pipeline** (R/07_scheduled_run.R) běží lokálně přes Windows Task Scheduler a zapisuje do Supabase (PostgreSQL)
-- **Frontend** (pp.R) je Shiny aplikace nasazená na shinyapps.io, která čte z Supabase
+- **Frontend** (app.R) je Shiny aplikace nasazená na shinyapps.io, která čte z Supabase
 
 ## Datové zdroje
 
