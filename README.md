@@ -26,7 +26,7 @@ Automatický monitoring legislativních materiálů projednávaných v Poslaneck
 1. Naklonujte repozitář
 2. Vytvořte soubor \.Renviron\ podle vzoru níže
 3. Spusťte \R/07_scheduled_run.R\ pro první načtení dat
-4. Spusťte \pp.R\ pro zobrazení aplikace
+4. Spusťte \app.R\ pro zobrazení aplikace
 
 \\\
 SUPABASE_HOST=...
