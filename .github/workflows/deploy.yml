@@ -3,6 +3,10 @@ name: Deploy to shinyapps.io
 on:
   push:
     branches: [main]
+    paths:              # only redeploy when the app itself changes
+      - "app.R"
+      - "R/04_database.R"
+      - "R/10_alerts.R"
 
 jobs:
   deploy:
@@ -11,37 +15,44 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Write .Renviron from GitHub Secrets so it can be bundled in the deploy
+      - name: Write .Renviron
+        run: |
+          cat > .Renviron << 'RENVIRON'
+          SUPABASE_HOST=${{ secrets.SUPABASE_HOST }}
+          SUPABASE_PORT=${{ secrets.SUPABASE_PORT }}
+          SUPABASE_DB=${{ secrets.SUPABASE_DB }}
+          SUPABASE_USER=${{ secrets.SUPABASE_USER }}
+          SUPABASE_PASSWORD=${{ secrets.SUPABASE_PASSWORD }}
+          RESEND_API_KEY=${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM=${{ secrets.RESEND_FROM }}
+          APP_URL=https://snemovnadnes.cz
+          RENVIRON
+
       - uses: r-lib/actions/setup-r@v2
         with:
-          r-version: '4.4.0'
+          r-version: "4.3.2"
 
-      - name: Install system dependencies
-        run: sudo apt-get install -y libcurl4-openssl-dev libssl-dev libpq-dev
-
-      - name: Install R packages
-        run: |
-          install.packages(c(
-            "shiny", "plotly", "DBI", "dplyr", "stringr",
-            "RPostgres", "httr2", "jsonlite", "uuid", "rsconnect"
-          ), repos = "https://cloud.r-project.org")
-        shell: Rscript {0}
+      - name: Install rsconnect
+        run: Rscript -e 'install.packages("rsconnect")'
 
       - name: Deploy
         env:
-          SHINYAPPS_ACCOUNT: ${{ secrets.SHINYAPPS_ACCOUNT }}
-          SHINYAPPS_TOKEN:   ${{ secrets.SHINYAPPS_TOKEN }}
-          SHINYAPPS_SECRET:  ${{ secrets.SHINYAPPS_SECRET }}
+          SHINYAPPS_TOKEN:  ${{ secrets.SHINYAPPS_TOKEN }}
+          SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
         run: |
-          rsconnect::setAccountInfo(
-            name   = Sys.getenv("SHINYAPPS_ACCOUNT"),
-            token  = Sys.getenv("SHINYAPPS_TOKEN"),
-            secret = Sys.getenv("SHINYAPPS_SECRET")
-          )
-          rsconnect::deployApp(
-            appDir      = ".",
-            appName     = "snemovnadnes",
-            account     = Sys.getenv("SHINYAPPS_ACCOUNT"),
-            forceUpdate = TRUE,
-            launch.browser = FALSE
-          )
-        shell: Rscript {0}
+          Rscript -e '
+            rsconnect::setAccountInfo(
+              name   = "dopady",
+              token  = Sys.getenv("SHINYAPPS_TOKEN"),
+              secret = Sys.getenv("SHINYAPPS_SECRET")
+            )
+            rsconnect::deployApp(
+              appDir      = ".",
+              appFiles    = c("app.R", ".Renviron", "R/04_database.R", "R/10_alerts.R"),
+              appName     = "snemovnadnes",
+              account     = "dopady",
+              forceUpdate = TRUE,
+              launch.browser = FALSE
+            )
+          '
