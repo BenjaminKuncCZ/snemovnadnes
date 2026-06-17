@@ -13,7 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # System libraries needed by pdftools (poppler) and RPostgres (libpq)
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
@@ -29,11 +28,7 @@ jobs:
           r-version: "4.3.2"
 
       - uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          # Install from renv.lock for reproducibility
-          working-directory: "."
 
-      # Write .Renviron with all secrets the pipeline needs
       - name: Write .Renviron
         run: |
           cat > .Renviron << 'RENVIRON'
@@ -55,4 +50,6 @@ jobs:
         run: mkdir -p data/pdfs data/stanoviska
 
       - name: Run pipeline
+        env:
+          SCHEDULED_ROOT: ${{ github.workspace }}   # <-- tells 07_scheduled_run.R where the project root is
         run: Rscript R/07_scheduled_run.R
