@@ -3,14 +3,25 @@
 #   1. Scrapes all PSP sessions from the current year, matches bills to VeKLEP,
 #      processes new ones and refreshes metadata on existing ones.
 #   2. Scrapes Komise RIA verdicts and writes them to the database.
+#
+# Monitoring:
+#   - Errors in any step send an email via Resend to ADMIN_EMAIL
+#   - A heartbeat timestamp is written to Supabase after every successful run
+#   - Optional: pings healthchecks.io if HEALTHCHECKS_URL is set in .Renviron
 
 script_dir <- if (Sys.getenv("SCHEDULED_ROOT") != "") {
   Sys.getenv("SCHEDULED_ROOT")
-} else {
+} else if (requireNamespace("rstudioapi", quietly = TRUE) &&
+           rstudioapi::isAvailable()) {
   dirname(rstudioapi::getActiveDocumentContext()$path)
+} else {
+  getwd()
 }
 setwd(script_dir)
 if (file.exists(".Renviron")) readRenviron(".Renviron")
+
+# Ensure data/ exists before any writes (needed on fresh CI runners)
+dir.create(file.path(script_dir, "data"), showWarnings = FALSE, recursive = TRUE)
 
 cat(format(Sys.time()), "Scheduled run started\n",
     file = file.path(script_dir, "data", "heartbeat.log"), append = TRUE)
@@ -37,11 +48,115 @@ log_msg <- function(msg, level = "INFO") {
   cat(line, "\n", file = log_file, append = TRUE)
 }
 
+# ── Error email via Resend ────────────────────────────────────────────────────
+# Requires ADMIN_EMAIL in .Renviron — the address that receives error alerts.
+# Uses the same RESEND_API_KEY and RESEND_FROM already set up for user alerts.
+
+send_error_alert <- function(step, error_msg) {
+  api_key     <- Sys.getenv("RESEND_API_KEY")
+  admin_email <- Sys.getenv("ADMIN_EMAIL")
+  from_addr   <- Sys.getenv("RESEND_FROM", "Sněmovna dnes <alerts@snemovnadnes.cz>")
+  
+  if (api_key == "" || admin_email == "") {
+    log_msg("WARN: RESEND_API_KEY or ADMIN_EMAIL not set — skipping error email")
+    return(invisible(FALSE))
+  }
+  
+  html <- paste0(
+    '<div style="font-family:monospace;max-width:600px;">',
+    '<h2 style="color:#c0392b;">&#9888; Pipeline error: ', step, '</h2>',
+    '<p><strong>Time:</strong> ', format(Sys.time()), '</p>',
+    '<p><strong>Error:</strong></p>',
+    '<pre style="background:#f5f5f5;padding:12px;border-left:3px solid #c0392b;">',
+    gsub("&", "&amp;", gsub("<", "&lt;", gsub(">", "&gt;", as.character(error_msg)))),
+    '</pre>',
+    '<p style="color:#7f8c8d;font-size:0.85rem;">',
+    'Check log: data/scheduled_', format(Sys.Date(), "%Y%m%d"), '.log',
+    '</p></div>'
+  )
+  
+  tryCatch({
+    request("https://api.resend.com/emails") |>
+      req_headers(
+        "Authorization" = paste("Bearer", api_key),
+        "Content-Type"  = "application/json"
+      ) |>
+      req_body_json(list(
+        from    = from_addr,
+        to      = list(admin_email),
+        subject = paste0("[Sněmovna dnes] Pipeline error — ", step,
+                         " (", format(Sys.Date()), ")"),
+        html    = html
+      )) |>
+      req_timeout(15) |>
+      req_perform()
+    log_msg(paste("Error alert sent to", admin_email))
+    invisible(TRUE)
+  }, error = function(e) {
+    log_msg(paste("Failed to send error alert:", e$message), "WARN")
+    invisible(FALSE)
+  })
+}
+
+# ── Heartbeat: write last_run to Supabase ─────────────────────────────────────
+# Creates a single-row 'heartbeat' table and updates it after every successful
+# run. The Shiny app can display this as "last updated X minutes ago".
+# Also queryable via the public API:
+#   GET /rest/v1/heartbeat?select=last_run
+
+update_heartbeat <- function(db, counts) {
+  tryCatch({
+    dbExecute(db, "
+      CREATE TABLE IF NOT EXISTS heartbeat (
+        id          INTEGER PRIMARY KEY DEFAULT 1,
+        last_run    TIMESTAMPTZ NOT NULL,
+        bills_success INTEGER,
+        bills_skipped INTEGER,
+        bills_error   INTEGER
+      )
+    ")
+    dbExecute(db, "
+      INSERT INTO heartbeat (id, last_run, bills_success, bills_skipped, bills_error)
+      VALUES (1, now(), $1, $2, $3)
+      ON CONFLICT (id) DO UPDATE
+        SET last_run      = now(),
+            bills_success = EXCLUDED.bills_success,
+            bills_skipped = EXCLUDED.bills_skipped,
+            bills_error   = EXCLUDED.bills_error
+    ", params = list(
+      as.integer(counts$success %||% 0L),
+      as.integer(counts$skipped %||% 0L),
+      as.integer(counts$error   %||% 0L)
+    ))
+    log_msg("Heartbeat updated in Supabase")
+  }, error = function(e) {
+    log_msg(paste("Heartbeat update failed:", e$message), "WARN")
+  })
+}
+
+# ── Healthchecks.io ping ──────────────────────────────────────────────────────
+# Optional. Sign up free at healthchecks.io, create a check with a 25h grace
+# period, and add the ping URL to .Renviron as HEALTHCHECKS_URL.
+# If no ping arrives within 25h, healthchecks.io emails you automatically.
+# This covers the "machine didn't run at all" case that Supabase cannot detect.
+
+ping_healthchecks <- function(success = TRUE) {
+  url <- Sys.getenv("HEALTHCHECKS_URL")
+  if (url == "") return(invisible(NULL))
+  
+  ping_url <- if (success) url else paste0(url, "/fail")
+  
+  tryCatch({
+    request(ping_url) |>
+      req_timeout(10) |>
+      req_perform()
+    log_msg(paste("Healthchecks.io pinged:", if (success) "success" else "FAIL"))
+  }, error = function(e) {
+    log_msg(paste("Healthchecks.io ping failed:", e$message), "WARN")
+  })
+}
+
 # ── 1. Determine which sessions to scan ───────────────────────────────────────
-#
-# Takes the highest active session number and scans a window of (max-10) to
-# (max+5). This reliably covers all sessions from the current year, including
-# ones that have concluded and no longer appear as "active" on the PSP page.
 
 get_sessions_to_scan <- function() {
   
@@ -67,20 +182,14 @@ get_sessions_to_scan <- function() {
 }
 
 # ── 2. Document quality rank ──────────────────────────────────────────────────
-#
-# Hierarchy (higher number = better document):
-#   0  zadne          — nothing found
-#   1  zd/ma fallback — last-resort document, not a real RIA
-#   2  prehled_dopadu — summary / důvodová zpráva / příloha
-#   3  RIA            — proper Závěrečná zpráva z hodnocení dopadů regulace
 
 doc_rank <- function(type) {
   switch(type,
          ria_keyword    = 3L,
          ria_type       = 3L,
-         RIA            = 3L,   # stored typ_dokumentu value
+         RIA            = 3L,
          mp_zip         = 2L,
-         prehled_dopadu = 2L,   # stored typ_dokumentu value
+         prehled_dopadu = 2L,
          zd_fallback    = 1L,
          ma_fallback    = 1L,
          zadne          = 0L,
@@ -89,23 +198,11 @@ doc_rank <- function(type) {
 }
 
 # ── 3. Refresh a single bill ──────────────────────────────────────────────────
-#
-# Called for every bill found in scanned sessions. Logic:
-#
-#   a) Read the veklep_modified date currently stored in the DB (before update).
-#   b) Fetch the latest VeKLEP metadata and write it to the bills table.
-#      This always happens — status, description, government_date are kept fresh.
-#   c) If the bill has never been processed → run the full extraction pipeline.
-#   d) If the bill already has a proper RIA (rank 3) → nothing to upgrade; skip.
-#   e) If veklep_modified has NOT changed since the last run → skip doc check.
-#   f) If veklep_modified HAS changed (or was never stored) → fetch the current
-#      document list and re-process if a better document is now available.
 
 refresh_bill <- function(db, material, backend = "gemini") {
   
   pid <- material$pid
   
-  # (a) Read the stored last-modified date BEFORE we overwrite it
   stored <- dbGetQuery(db,
                        "SELECT veklep_modified FROM bills WHERE pid = $1",
                        params = list(pid)
@@ -115,7 +212,6 @@ refresh_bill <- function(db, material, backend = "gemini") {
   else
     ""
   
-  # (b) Fetch latest VeKLEP metadata and persist it (updates status, dates, etc.)
   meta <- tryCatch(get_material_metadata(pid), error = function(e) NULL)
   if (!is.null(meta)) material <- c(material, meta)
   tryCatch(
@@ -125,7 +221,6 @@ refresh_bill <- function(db, material, backend = "gemini") {
   
   current_modified <- material$veklep_modified %||% ""
   
-  # (c) Never processed → run the full pipeline regardless of modification date
   existing <- dbGetQuery(db,
                          "SELECT typ_dokumentu FROM impacts WHERE pid = $1 ORDER BY id DESC LIMIT 1",
                          params = list(pid)
@@ -139,23 +234,20 @@ refresh_bill <- function(db, material, backend = "gemini") {
   prev_type <- existing$typ_dokumentu[1]
   prev_type <- if (is.na(prev_type)) "zadne" else prev_type
   
-  # (d) Already has a proper RIA — top of the hierarchy, nothing to upgrade
   if (doc_rank(prev_type) >= 3L) {
     log_msg(paste("  Already has RIA — metadata refreshed:", pid))
     return("skipped")
   }
   
-  # (e) VeKLEP modification date unchanged → skip expensive document check
-  veklep_changed <- current_modified == "" ||        # field not available — be safe
-    stored_modified   == "" ||        # never stored before
-    current_modified  != stored_modified
+  veklep_changed <- current_modified == "" ||
+    stored_modified  == "" ||
+    current_modified != stored_modified
   
   if (!veklep_changed) {
     log_msg(paste("  VeKLEP unchanged — skipping doc check:", pid))
     return("skipped")
   }
   
-  # (f) VeKLEP has been modified — check whether a better document is now present
   log_msg(paste0("  VeKLEP modified (", stored_modified, " → ", current_modified,
                  ") — checking documents: ", pid))
   
@@ -187,7 +279,6 @@ run_pipeline <- function(backend = "gemini") {
   
   log_msg("=== Pipeline started ===")
   
-  # --- Collect bills from all relevant sessions ---
   sessions <- get_sessions_to_scan()
   
   bill_list <- lapply(sessions, function(s) {
@@ -203,12 +294,10 @@ run_pipeline <- function(backend = "gemini") {
   
   if (is.null(all_bills) || nrow(all_bills) == 0) {
     log_msg("No bills found across scanned sessions", "WARN")
-    return(invisible(NULL))
+    return(invisible(list(success = 0L, skipped = 0L, error = 0L, no_document = 0L)))
   }
-  log_msg(paste("Bills found:", nrow(all_bills),
-                "across", length(sessions), "sessions"))
+  log_msg(paste("Bills found:", nrow(all_bills), "across", length(sessions), "sessions"))
   
-  # --- Match each PSP tisk number to a VeKLEP PID ---
   matched <- tryCatch(
     match_tisk_to_veklep(all_bills),
     error = function(e) {
@@ -219,16 +308,15 @@ run_pipeline <- function(backend = "gemini") {
   
   if (is.null(matched) || nrow(matched) == 0) {
     log_msg("No bills could be matched to VeKLEP PIDs", "WARN")
-    return(invisible(NULL))
+    return(invisible(list(success = 0L, skipped = 0L, error = 0L, no_document = 0L)))
   }
   log_msg(paste("Matched", nrow(matched), "unique bills to VeKLEP"))
   
-  # --- Refresh / process each matched bill ---
   db <- get_db()
   on.exit(dbDisconnect(db), add = TRUE)
   init_db(db)
   
-  counts <- list(success = 0, skipped = 0, error = 0, no_document = 0)
+  counts <- list(success = 0L, skipped = 0L, error = 0L, no_document = 0L)
   
   for (i in seq_len(nrow(matched))) {
     
@@ -252,7 +340,7 @@ run_pipeline <- function(backend = "gemini") {
       }
     )
     
-    counts[[status]] <- counts[[status]] + 1
+    counts[[status]] <- counts[[status]] + 1L
     if (status != "skipped") Sys.sleep(5)
   }
   
@@ -264,13 +352,9 @@ run_pipeline <- function(backend = "gemini") {
   ))
   
   invisible(counts)
-  
- 
 }
 
 # ── 5. Refresh metadata for all bills already in DB ──────────────────────────
-# Bills that drop off the active PSP agenda are never touched by the session
-# scan above, so their status_name/description go stale. This loop fixes that.
 
 refresh_all_metadata <- function(db) {
   
@@ -287,8 +371,6 @@ refresh_all_metadata <- function(db) {
     )
     
     if (is.null(meta)) next
-    
-    material <- c(list(pid = pid), meta)
     
     tryCatch(
       dbExecute(db, "
@@ -308,7 +390,7 @@ refresh_all_metadata <- function(db) {
       error = function(e) log_msg(paste("  Update failed for", pid, ":", e$message), "WARN")
     )
     
-    Sys.sleep(0.3)  # be polite to the API
+    Sys.sleep(0.3)
   }
   
   log_msg("Metadata refresh complete")
@@ -316,21 +398,53 @@ refresh_all_metadata <- function(db) {
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 
-run_pipeline(backend = "gemini")
+# Initialize so the heartbeat section always has a value, even if the
+# pipeline block is skipped (e.g. interactive() == TRUE locally).
+pipeline_counts <- list(success = 0L, skipped = 0L, error = 0L, no_document = 0L)
 
-# Komise RIA — uses its own connection
-db_komise <- get_db()
-run_komise_scraper(
-  years = c(as.integer(format(Sys.Date(), "%Y")),
-            as.integer(format(Sys.Date(), "%Y")) - 1),
-  db    = db_komise
-)
-dbDisconnect(db_komise)
+if (!interactive() || Sys.getenv("RUN_PIPELINE") == "1") {
 
-# Alerts — check for new matches and fire notification emails
-db_alerts <- get_db()
-check_and_fire_alerts(
-  db      = db_alerts,
-  app_url = Sys.getenv("APP_URL", "https://snemovnadnes.cz")
-)
-dbDisconnect(db_alerts)
+  pipeline_counts <- tryCatch({
+    run_pipeline(backend = "gemini")
+  }, error = function(e) {
+    log_msg(paste("FATAL: run_pipeline crashed:", e$message), "ERROR")
+    send_error_alert("run_pipeline", e$message)
+    list(success = 0L, skipped = 0L, error = 1L, no_document = 0L)
+  })
+
+  tryCatch({
+    db_komise <- get_db()
+    run_komise_scraper(
+      years = c(as.integer(format(Sys.Date(), "%Y")),
+                as.integer(format(Sys.Date(), "%Y")) - 1),
+      db    = db_komise
+    )
+    dbDisconnect(db_komise)
+  }, error = function(e) {
+    log_msg(paste("Komise RIA scraper error:", e$message), "ERROR")
+    send_error_alert("run_komise_scraper", e$message)
+  })
+
+  tryCatch({
+    db_alerts <- get_db()
+    check_and_fire_alerts(
+      db      = db_alerts,
+      app_url = Sys.getenv("APP_URL", "https://snemovnadnes.cz")
+    )
+    dbDisconnect(db_alerts)
+  }, error = function(e) {
+    log_msg(paste("Alerts error:", e$message), "ERROR")
+    send_error_alert("check_and_fire_alerts", e$message)
+  })
+
+  # ── Heartbeat ───────────────────────────────────────────────────────────────
+  db_hb <- tryCatch(get_db(), error = function(e) NULL)
+  if (!is.null(db_hb)) {
+    update_heartbeat(db_hb, pipeline_counts)
+    dbDisconnect(db_hb)
+  }
+
+  ping_healthchecks(success = TRUE)
+}
+
+log_msg("=== Scheduled run complete ===")

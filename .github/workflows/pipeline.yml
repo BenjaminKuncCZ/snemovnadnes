@@ -1,55 +1,119 @@
-name: Daily pipeline
+name: Daily Pipeline
 
 on:
   schedule:
-    - cron: "0 5 * * *"   # 05:00 UTC = 07:00 Prague summer time
-  workflow_dispatch:        # allow manual trigger from GitHub UI
+    # Runs at 05:00 UTC every day
+    - cron: '0 5 * * *'
+  workflow_dispatch:  # allow manual trigger from GitHub UI
 
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90  # Gemini + PDF downloads can be slow
+
+    env:
+      # ── Supabase ──────────────────────────────────────────────────────────────
+      SUPABASE_HOST:     aws-0-eu-west-1.pooler.supabase.com
+      SUPABASE_PORT:     "5432"
+      SUPABASE_DB:       postgres
+      SUPABASE_USER:     postgres.ktehtgonacsexkglnohi
+      SUPABASE_PASSWORD: ${{ secrets.SUPABASE_PASSWORD }}
+      # ── LLM ───────────────────────────────────────────────────────────────────
+      GEMINI_API_KEY:    ${{ secrets.GEMINI_API_KEY }}
+      LLM_BACKEND:       gemini
+      # ── Email ─────────────────────────────────────────────────────────────────
+      RESEND_API_KEY:    ${{ secrets.RESEND_API_KEY }}
+      RESEND_FROM:       "Sněmovna dnes <alerts@snemovnadnes.cz>"
+      ADMIN_EMAIL:       ${{ secrets.ADMIN_EMAIL }}
+      # ── Monitoring ────────────────────────────────────────────────────────────
+      HEALTHCHECKS_URL:  ${{ secrets.HEALTHCHECKS_URL }}
+      # ── App ───────────────────────────────────────────────────────────────────
+      APP_URL:           https://snemovnadnes.cz
+      # ── Pipeline ──────────────────────────────────────────────────────────────
+      # Tells 07_scheduled_run.R where to setwd() — avoids the rstudioapi call
+      SCHEDULED_ROOT:    ${{ github.workspace }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.3.2'
+
+      # ── System libraries ──────────────────────────────────────────────────────
+      # libpq-dev       → RPostgres
+      # libpoppler-cpp  → pdftools
+      # libcurl / ssl   → httr2, curl
+      # libxml2         → xml2, rvest
+      # font stack      → officer / ragg (needed by officer's dependencies)
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y \
-            libpoppler-cpp-dev \
+          sudo apt-get install -y --no-install-recommends \
             libpq-dev \
+            libpoppler-cpp-dev \
             libcurl4-openssl-dev \
             libssl-dev \
-            libxml2-dev
+            libxml2-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libharfbuzz-dev \
+            libfribidi-dev \
+            libpng-dev \
+            libtiff5-dev \
+            libjpeg-dev
 
-      - uses: r-lib/actions/setup-r@v2
+      # ── R package cache ───────────────────────────────────────────────────────
+      # Keyed on the renv.lock so the cache is invalidated when dependencies change.
+      # renv itself is NOT used to restore (it's deactivated); we just cache the
+      # installed packages so subsequent runs are fast.
+      - name: Cache R packages
+        uses: actions/cache@v4
         with:
-          r-version: "4.3.2"
+          path: ${{ env.R_LIBS_USER }}
+          key: ${{ runner.os }}-r-4.3.2-${{ hashFiles('renv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-r-4.3.2-
 
-      - uses: r-lib/actions/setup-r-dependencies@v2
-
-      - name: Write .Renviron
+      # ── Install only the packages the pipeline actually needs ─────────────────
+      # We skip shiny / plotly / rsconnect — those are only needed for the app.
+      # `try()` around each so a single already-installed package doesn't abort.
+      - name: Install R packages
         run: |
-          cat > .Renviron << 'RENVIRON'
-          SUPABASE_HOST=${{ secrets.SUPABASE_HOST }}
-          SUPABASE_PORT=${{ secrets.SUPABASE_PORT }}
-          SUPABASE_DB=${{ secrets.SUPABASE_DB }}
-          SUPABASE_USER=${{ secrets.SUPABASE_USER }}
-          SUPABASE_PASSWORD=${{ secrets.SUPABASE_PASSWORD }}
-          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-          RESEND_API_KEY=${{ secrets.RESEND_API_KEY }}
-          RESEND_FROM=${{ secrets.RESEND_FROM }}
-          ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
-          APP_URL=https://snemovnadnes.cz
-          LLM_BACKEND=gemini
-          RUN_PIPELINE=1
-          RENVIRON
+          Rscript -e '
+            pkgs <- c(
+              "httr2", "rvest", "xml2", "pdftools", "stringr", "dplyr",
+              "DBI", "RPostgres", "jsonlite", "officer", "uuid",
+              "stringi", "curl", "openssl", "lubridate"
+            )
+            missing <- pkgs[!pkgs %in% rownames(installed.packages())]
+            if (length(missing) > 0) {
+              install.packages(
+                missing,
+                repos = "https://packagemanager.posit.co/cran/latest",
+                Ncpus = 2
+              )
+            }
+          '
 
+      # ── Workspace prep ────────────────────────────────────────────────────────
+      # The pipeline writes logs and downloads to data/; create the dirs so the
+      # very first write (heartbeat.log) does not crash.
       - name: Create data directories
         run: mkdir -p data/pdfs data/stanoviska
 
-      - name: Run pipeline
-        env:
-          SCHEDULED_ROOT: ${{ github.workspace }}   # <-- tells 07_scheduled_run.R where the project root is
+      # ── Run the pipeline ──────────────────────────────────────────────────────
+      - name: Run scheduled pipeline
         run: Rscript R/07_scheduled_run.R
+
+      # ── Upload logs as an artifact (visible in GitHub Actions UI) ─────────────
+      - name: Upload pipeline log
+        if: always()   # upload even on failure so you can diagnose errors
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-log-${{ github.run_id }}
+          path: data/scheduled_*.log
+          if-no-files-found: ignore
+          retention-days: 14

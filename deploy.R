@@ -1,55 +1,64 @@
 # ── deploy.R ──────────────────────────────────────────────────────────────────
-# Run this script from the project root to deploy the Shiny app to shinyapps.io
-# Location: D:/snemovni dopady/snemovni-dopady/deploy.R
+# Run this from RStudio (not sourced automatically by anything).
+# Place it in the project root: D:/snemovni dopady/snemovni-dopady/deploy.R
 #
-# The Shiny app only needs:
-#   app.R             — UI + server
-#   R/04_database.R   — DB connection + read functions
-#   R/10_alerts.R     — alert CRUD + email sending
-#
-# Pipeline scripts (01–09) run locally via Task Scheduler and write to Supabase.
-# They must NOT be deployed — shinyapps.io has no Ollama, no local file system,
-# and deploying 05_pipeline_testing.R caused the previous crash.
+# Usage: open in RStudio, select all, Ctrl+Enter
 
 library(rsconnect)
 
-# ── 1. Set working directory to project root ───────────────────────────────────
-project_root <- "D:/snemovni dopady/snemovni-dopady"
-setwd(project_root)
+# ── Step 1: Verify account is configured ──────────────────────────────────────
+# If this errors, run rsconnect::setAccountInfo(...) first (see shinyapps.io
+# → Account → Tokens → Show → Copy to clipboard).
+accounts <- rsconnect::accounts()
+stopifnot("No shinyapps.io account configured — run rsconnect::setAccountInfo() first" =
+            "dopady" %in% accounts$name)
+cat("✓ Account found:", accounts[accounts$name == "dopady", "server"], "\n")
 
-# ── 2. Whitelist exactly the files the Shiny app needs ────────────────────────
+# ── Step 2: Define exactly which files to bundle ──────────────────────────────
+# Only files the Shiny app actually needs at runtime.
+# Pipeline scripts (01–09, 06, 07, 08, 09) are deliberately excluded so
+# shinyapps.io doesn't auto-source them on startup.
+
 app_files <- c(
   "app.R",
+  "secrets.R",
   "R/04_database.R",
   "R/10_alerts.R"
 )
-
-# Sanity check — abort if any required file is missing
+# ── Step 3: Verify all files exist before deploying ───────────────────────────
 missing <- app_files[!file.exists(app_files)]
 if (length(missing) > 0) {
-  stop("Missing files:\n", paste(" -", missing, collapse = "\n"))
+  stop("Missing files — fix before deploying:\n  ", paste(missing, collapse = "\n  "))
 }
-message("All required files found.")
+cat("✓ All", length(app_files), "files present\n")
 
-# ── 3. Configure shinyapps.io account (only needed once) ─────────────────────
-# If you haven't set this up yet, run this block once with your credentials
-# from shinyapps.io → Account → Tokens → Show secret:
-#
-# rsconnect::setAccountInfo(
-#   name   = "dopady",
-#   token  = "YOUR_TOKEN",
-#   secret = "YOUR_SECRET"
-# )
+# ── Step 4: Double-check that pipeline scripts are NOT in the list ─────────────
+pipeline_scripts <- c(
+  "R/01_fetch_agenda.R", "R/02_crawl_documents.R", "R/03_extract_llm.R",
+  "R/05_pipeline_testing.R", "R/06_run_pipeline.R", "R/07_scheduled_run.R",
+  "R/08_komise_ria.R", "R/09_bulk_import.R"
+)
+accidentally_included <- intersect(app_files, pipeline_scripts)
+if (length(accidentally_included) > 0) {
+  stop("Pipeline scripts in app_files — remove them:\n  ",
+       paste(accidentally_included, collapse = "\n  "))
+}
+cat("✓ No pipeline scripts in bundle\n")
 
-# ── 4. Deploy ─────────────────────────────────────────────────────────────────
+# ── Step 5: Print the final file list for a manual sanity check ───────────────
+cat("\nFiles that will be deployed:\n")
+for (f in app_files) cat("  ", f, "\n")
+cat("\nProceed? Edit this script to comment out the stop() below, then re-run.\n")
+# stop("Safety stop — comment out this line when you're happy with the file list above.")
+
+# ── Step 6: Deploy ────────────────────────────────────────────────────────────
 rsconnect::deployApp(
-  appDir     = project_root,
-  appFiles   = app_files,
-  appName    = "snemovnadnes",        # must match your shinyapps.io app name
-  account    = "dopady",
+  appDir      = ".",
+  appName     = "snemovnadnes",
+  account     = "dopady",
+  appFiles    = app_files,
   forceUpdate = TRUE,
-  launch.browser = FALSE              # don't auto-open browser after deploy
+  launch.browser = FALSE   # set TRUE if you want it to open after deploy
 )
 
-message("Deployment complete.")
-message("Next: set environment variables in shinyapps.io dashboard (see below).")
+cat("\n✓ Deploy complete — verify at https://snemovnadnes.cz\n")
