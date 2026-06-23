@@ -2,8 +2,6 @@ library(DBI)
 library(jsonlite)
 library(stringr)
 
-# ── Connect ───────────────────────────────────────────────────────────────────
-
 get_db <- function() {
   library(RPostgres)
   dbConnect(
@@ -17,18 +15,6 @@ get_db <- function() {
   )
 }
   
-  # Local development — use .Renviron
-  library(RPostgres)
-  dbConnect(
-    RPostgres::Postgres(),
-    host     = host,
-    port     = as.integer(Sys.getenv("SUPABASE_PORT", "5432")),
-    dbname   = Sys.getenv("SUPABASE_DB", "postgres"),
-    user     = Sys.getenv("SUPABASE_USER", "postgres"),
-    password = Sys.getenv("SUPABASE_PASSWORD"),
-    sslmode  = "require"
-  )
-}
 
 # ── Create tables ─────────────────────────────────────────────────────────────
 
@@ -149,18 +135,7 @@ init_db <- function(db) {
   # ══════════════════════════════════════════════════════════════════════════════
   
   # ── Alerts table (email notification subscriptions) ──────────────────────
-  dbExecute(db, "
-    CREATE TABLE IF NOT EXISTS alerts (
-      id            SERIAL PRIMARY KEY,
-      email         TEXT NOT NULL,
-      predkladatel  TEXT,
-      keyword       TEXT,
-      token         TEXT UNIQUE NOT NULL,
-      active        BOOLEAN DEFAULT FALSE,
-      created_at    TIMESTAMPTZ DEFAULT now(),
-      last_fired_at TIMESTAMPTZ
-    )
-  ")
+  
   tryCatch(
     dbExecute(db, "CREATE INDEX IF NOT EXISTS idx_alerts_token  ON alerts(token)"),
     error = function(e) invisible(NULL)
@@ -218,50 +193,52 @@ save_bill <- function(db, material) {
   
   if (nrow(existing) > 0) {
     dbExecute(db, "
-      UPDATE bills 
-      SET id_tisk         = COALESCE(id_tisk, $1),
-          session         = COALESCE(session, $2),
-          status_id       = CASE WHEN $3 <> '' THEN $3 ELSE status_id END,
-          status_name     = CASE WHEN $4 <> '' THEN $4 ELSE status_name END,
-          description     = CASE WHEN $5 <> '' THEN $5 ELSE description END,
-          government_date = CASE WHEN $6 <> '' THEN $6 ELSE government_date END,
-          veklep_modified = CASE WHEN $8 <> '' THEN $8 ELSE veklep_modified END,
-          psp_status = CASE WHEN $9 <> '' THEN $9 ELSE psp_status END
-      WHERE pid = $9
-    ", params = list(
-      material$id_tisk        %||% NA,
-      as.integer(material$session %||% NA),
-      material$status_id      %||% "",
-      material$status_name    %||% "",
-      material$description    %||% "",
-      material$government_date %||% "",
-      material$pid,
-      material$veklep_modified %||% ""
-    ))
+  UPDATE bills 
+  SET id_tisk         = COALESCE(id_tisk, $1),
+      session         = COALESCE(session, $2),
+      status_id       = CASE WHEN $3 <> '' THEN $3 ELSE status_id END,
+      status_name     = CASE WHEN $4 <> '' THEN $4 ELSE status_name END,
+      description     = CASE WHEN $5 <> '' THEN $5 ELSE description END,
+      government_date = CASE WHEN $6 <> '' THEN $6 ELSE government_date END,
+      veklep_modified = CASE WHEN $8 <> '' THEN $8 ELSE veklep_modified END,
+      psp_status      = CASE WHEN $9 <> '' THEN $9 ELSE psp_status END
+  WHERE pid = $7
+", params = list(
+  material$id_tisk         %||% NA_character_,
+  as.integer(material$session %||% NA_integer_),
+  material$status_id       %||% "",
+  material$status_name     %||% "",
+  material$description     %||% "",
+  material$government_date %||% "",
+  material$pid,                         # $7 — WHERE clause
+  material$veklep_modified %||% "",     # $8
+  material$psp_status      %||% ""      # $9 — was missing entirely
+))
     message("Bill already in DB: ", material$pid)
     return(invisible(NULL))
   }
   
   dbExecute(db, "
-    INSERT INTO bills 
-      (pid, title, predkladatel, published, processed_at, 
-       id_tisk, session, status_id, status_name, description,
-       government_date, veklep_modified, psp_status)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-  ", params = list(
-    material$pid,
-    material$title,
-    material$predkladatel   %||% "",
-    material$published      %||% "",
-    format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
-    material$id_tisk        %||% NA,
-    as.integer(material$session %||% NA),
-    material$status_id      %||% "",
-    material$status_name    %||% "",
-    material$description    %||% "",
-    material$government_date %||% "",
-    material$veklep_modified %||% ""
-  ))
+  INSERT INTO bills 
+    (pid, title, predkladatel, published, processed_at, 
+     id_tisk, session, status_id, status_name, description,
+     government_date, veklep_modified, psp_status)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+", params = list(
+  material$pid,
+  material$title,
+  material$predkladatel    %||% "",
+  material$published       %||% "",
+  format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
+  material$id_tisk         %||% NA_character_,
+  as.integer(material$session %||% NA_integer_),
+  material$status_id       %||% "",
+  material$status_name     %||% "",
+  material$description     %||% "",
+  material$government_date %||% "",
+  material$veklep_modified %||% "",
+  material$psp_status      %||% ""   # ← was missing
+))
   
   message("Saved bill: ", material$pid)
 }
@@ -479,4 +456,9 @@ migrate_to_supabase <- function(sqlite_path = NULL) {
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
-`%||%` <- function(a, b) if (!is.null(a) && length(a) > 0 && a != "") a else b
+`%||%` <- function(a, b) {
+  if (is.null(a) || length(a) == 0) return(b)
+  if (length(a) == 1 && is.na(a)) return(b)
+  if (is.character(a) && nchar(a) == 0) return(b)
+  a
+}

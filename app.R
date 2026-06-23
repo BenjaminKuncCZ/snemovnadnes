@@ -1,12 +1,21 @@
+if (file.exists("secrets.R")) source("secrets.R")
+
 library(shiny)
 library(plotly)
 library(DBI)
-library(RSQLite)
 library(dplyr)
 library(stringr)
 
 source("R/04_database.R")
 source("R/10_alerts.R")
+
+# Startup check — visible in shinyapps.io logs
+message("=== App starting ===")
+message("SUPABASE_PASSWORD set: ", nchar(Sys.getenv("SUPABASE_PASSWORD")) > 0)
+message("RPostgres available: ", requireNamespace("RPostgres", quietly = TRUE))
+message("===================")
+
+APP_URL <- "https://snemovnadnes.cz"
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
 
@@ -972,12 +981,6 @@ server <- function(input, output, session) {
   
   db <- get_db()
   
-  # DEBUG — remove after
-  test <- get_all_bills(db)
-  message("Columns: ", paste(names(test), collapse = ", "))
-  message("First status_name: ", test$status_name[1])
-  message("First description: ", test$description[1])
-  
   
   onStop(function() dbDisconnect(db))
   
@@ -999,9 +1002,14 @@ server <- function(input, output, session) {
     }
     
     # Search filter
-    search <- input$search_text
-    if (!is.null(search) && nchar(trimws(search)) > 0) {
-      df <- df[str_detect(tolower(df$title), tolower(trimws(search))), ]
+    search <- trimws(input$search_text)
+    if (!is.null(search) && nzchar(search)) {
+      search <- tolower(search)
+      
+      df <- df[
+        str_detect(tolower(coalesce(as.character(df$title), "")), search) |
+          str_detect(tolower(coalesce(as.character(df$pid), "")), search),
+      ]
     }
     
     # Ministry filter
@@ -1314,7 +1322,7 @@ server <- function(input, output, session) {
       email_sent <- tryCatch(
         send_confirmation_email(email=email, predkladatele=predkladatele,
                                 subjekty=subjekty, keyword=keyword, token=result$token,
-                                app_url=Sys.getenv("APP_URL", "https://snemovnadnes.cz")),
+                                app_url=APP_URL),
         error = function(e) FALSE
       )
       

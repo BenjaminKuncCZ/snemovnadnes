@@ -43,12 +43,11 @@ fetch_all_tisky <- function(from_date = as.Date("2026-01-01")) {
   
   df <- do.call(rbind, lapply(lines, function(l) {
     parts <- str_split(l, "\\|")[[1]]
-    if (length(parts) < 11) return(NULL)
+    if (length(parts) < 16) return(NULL)
     data.frame(
       id_tisk   = str_trim(parts[1]),
-      id_org    = str_trim(parts[2]),
-      navrh_dat = str_trim(parts[7]),
-      uplny_naz = str_trim(parts[11]),
+      navrh_dat = str_trim(parts[12]),   # was parts[7]
+      uplny_naz = str_trim(parts[16]),   # was parts[11]
       stringsAsFactors = FALSE
     )
   }))
@@ -67,7 +66,7 @@ fetch_all_tisky <- function(from_date = as.Date("2026-01-01")) {
           paste(head(df$navrh_dat[nchar(df$navrh_dat) > 0], 8), collapse = ", "))
   
   # ── Filter to 10th parliament (id_org "174") ──────────────────────────────
-  df_10 <- df[df$id_org == "174", ]
+  df_10 <- df   # no parliament filter needed — date filter handles it
   message("\n--- 10TH PARLIAMENT (id_org = '174') ---")
   message("Rows: ", nrow(df_10))
   

@@ -1,0 +1,10 @@
+name: snemovnadnes
+title:
+username: dopady
+account: dopady
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 17493283
+bundleId: 12146882
+url: https://dopady.shinyapps.io/snemovnadnes/
+version: 1

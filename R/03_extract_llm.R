@@ -7,31 +7,27 @@ library(dplyr)
 #' Extract and clean text from a PDF
 
 call_gemini <- function(prompt, model = "gemini-2.5-flash") {
-  
   message("Sending to Gemini (", model, ")...")
-  
   api_key <- Sys.getenv("GEMINI_API_KEY")
   url <- paste0("https://generativelanguage.googleapis.com/v1beta/models/",
                 model, ":generateContent?key=", api_key)
   
-  resp <- request(url) |>
+  request(url) |>
     req_headers("Content-Type" = "application/json") |>
     req_body_json(list(
-      contents = list(
-        list(parts = list(list(text = prompt)))
-      ),
-      generationConfig = list(
-        temperature     = 0.1,
-        maxOutputTokens = 2048
-      )
+      contents         = list(list(parts = list(list(text = prompt)))),
+      generationConfig = list(temperature = 0.1, maxOutputTokens = 8192)
     )) |>
-    req_timeout(60) |>
+    req_timeout(90) |>
+    req_retry(
+      is_transient = \(r) resp_status(r) %in% c(429, 500, 502, 503, 504),
+      max_tries    = 5,
+      backoff      = \(i) c(10, 30, 60, 120)[min(i, 4)]
+    ) |>
     req_perform() |>
-    resp_body_json()
-  
-  resp$candidates[[1]]$content$parts[[1]]$text
+    resp_body_json() |>
+    (\(r) r$candidates[[1]]$content$parts[[1]]$text)()
 }
-
 #' Returns a list with: full_text, ria_section, costs_section
 extract_document_text <- function(file_path) {
   
@@ -82,7 +78,8 @@ extract_document_text <- function(file_path) {
     "závěrečná zpráva ria",  
     "vyhodnocení nákladů a přínosů",           # new
     "identifikace nákladů a přínosů",          # new
-    "vyhodnocení nákladů a přínosů variant"    # new
+    "vyhodnocení nákladů a přínosů variant",    # new
+    "Předpokládaný hospodářský a finanční dopad"
   )
   pattern <- paste(ria_patterns, collapse = "|")
   ria_line <- which(str_detect(tolower(pages_split), pattern))[1]
@@ -118,8 +115,8 @@ Jsi analytik regulatorních dopadů. Odpověz POUZE validním JSON objektem. Ž�
 
 Pravidla pro pole "typ_dokumentu":
 - "RIA" — pokud dokument obsahuje formální Závěrečnou zprávu z hodnocení dopadů regulace (ZZ RIA), tj. strukturované hodnocení s identifikací variant, náklady a přínosy
-- "prehled_dopadu" — pokud dokument obsahuje pouze stručný přehled dopadů, přehled dopadů regulace, nebo sekci Zhodnocení dopadů v důvodové zprávě (ale NE plnohodnotnou ZZ RIA)
-- "zadne" — pokud dokument neobsahuje žádné hodnocení dopadů, nebo explicitně uvádí že RIA nebyla zpracována
+- "prehled_dopadu" — pokud dokument obsahuje pouze stručný přehled dopadů, přehled dopadů regulace, nebo sekci Zhodnocení dopadů či Předpokládaný hospodářský a finanční dopad v důvodové zprávě (ale NE plnohodnotnou ZZ RIA)
+- "zadne" — pokud dokument neobsahuje žádné hodnocení dopadů
 
 Pole "dopady_zhodnoceny" musí být v souladu s "typ_dokumentu":
 - true  pokud typ_dokumentu je "RIA" nebo "prehled_dopadu"
@@ -291,9 +288,9 @@ extract_relevant_chunks <- function(text, max_chars = 6000) {
   lines <- lines[nchar(str_trim(lines)) > 0]  # remove empty lines
   
   # Score each line by relevance to costs/benefits
-  keywords_high <- c("náklad", "přínos", "kč", "mil\\.", "mld\\.", 
+  keywords_high <- c("náklad", "přínos",  "mil\\.", "mld\\.", 
                      "státní rozpočet", "vyčíslen", "finanční dopad",
-                     "hospodářský dopad", "celkem", "ročně", "jednorázov")
+                     "hospodářský dopad", "kč", "celkem", "ročně", "jednorázov")
   
   keywords_med  <- c("dopad", "regulac", "povinnost", "subjekt",
                      "podnikatel", "domácnost", "zaměstnan", "občan")
@@ -372,27 +369,24 @@ extract_section_by_heading <- function(text, max_chars = 6000) {
 }
 
 call_gemini <- function(prompt, model = "gemini-2.5-flash") {
-  
   message("Sending to Gemini (", model, ")...")
-  
   api_key <- Sys.getenv("GEMINI_API_KEY")
   url <- paste0("https://generativelanguage.googleapis.com/v1beta/models/",
                 model, ":generateContent?key=", api_key)
   
-  resp <- request(url) |>
+  request(url) |>
     req_headers("Content-Type" = "application/json") |>
     req_body_json(list(
-      contents = list(
-        list(parts = list(list(text = prompt)))
-      ),
-      generationConfig = list(
-        temperature     = 0.1,
-        maxOutputTokens = 8192
-      )
+      contents         = list(list(parts = list(list(text = prompt)))),
+      generationConfig = list(temperature = 0.1, maxOutputTokens = 8192)
     )) |>
-    req_timeout(60) |>
+    req_timeout(90) |>
+    req_retry(
+      is_transient = \(r) resp_status(r) %in% c(429, 500, 502, 503, 504),
+      max_tries    = 5,
+      backoff      = \(i) c(10, 30, 60, 120)[min(i, 4)]
+    ) |>
     req_perform() |>
-    resp_body_json()
-  
-  resp$candidates[[1]]$content$parts[[1]]$text
+    resp_body_json() |>
+    (\(r) r$candidates[[1]]$content$parts[[1]]$text)()
 }
