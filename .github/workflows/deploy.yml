@@ -36,23 +36,25 @@ jobs:
       - name: Install rsconnect
         run: Rscript -e 'install.packages("rsconnect")'
 
-      - name: Deploy
-        env:
-          SHINYAPPS_TOKEN:  ${{ secrets.SHINYAPPS_TOKEN }}
-          SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
-        run: |
-          Rscript -e '
-            rsconnect::setAccountInfo(
-              name   = "dopady",
-              token  = Sys.getenv("SHINYAPPS_TOKEN"),
-              secret = Sys.getenv("SHINYAPPS_SECRET")
-            )
-            rsconnect::deployApp(
-              appDir      = ".",
-              appFiles    = c("app.R", ".Renviron", "R/04_database.R", "R/10_alerts.R"),
-              appName     = "snemovnadnes",
-              account     = "dopady",
-              forceUpdate = TRUE,
-              launch.browser = FALSE
-            )
-          '
+      - name: Deploy to shinyapps.io
+  env:
+    SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
+    SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
+  run: |
+    Rscript -e '
+      rsconnect::setAccountInfo(
+        name   = "dopady",
+        token  = Sys.getenv("SHINYAPPS_TOKEN"),
+        secret = Sys.getenv("SHINYAPPS_SECRET")
+      )
+      rsconnect::deployApp(
+        appDir   = ".",
+        appName  = "snemovnadnes",
+        account  = "dopady",
+        server   = "shinyapps.io",
+        appFiles = c("app.R", "secrets.R", "renv.lock",
+                     "R/04_database.R", "R/10_alerts.R"),
+        forceUpdate   = TRUE,
+        launch.browser = FALSE
+      )
+    '

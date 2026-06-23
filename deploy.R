@@ -56,9 +56,10 @@ rsconnect::deployApp(
   appDir      = ".",
   appName     = "snemovnadnes",
   account     = "dopady",
+  server      = "shinyapps.io",   # ← add this line
   appFiles    = app_files,
   forceUpdate = TRUE,
-  launch.browser = FALSE   # set TRUE if you want it to open after deploy
+  launch.browser = FALSE
 )
 
 cat("\n✓ Deploy complete — verify at https://snemovnadnes.cz\n")
