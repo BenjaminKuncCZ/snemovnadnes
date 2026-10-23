@@ -313,36 +313,3 @@ match_tisk_to_veklep <- function(bills) {
   message("Matched ", nrow(matched), " of ", nrow(bills), " bills")
   matched
 }
-
-# Match all bills by fetching PID from PSP directly
-match_tisk_to_veklep <- function(bills) {
-  
-  message("Fetching VeKLEP PIDs from PSP for ", nrow(bills), " bills...")
-  
-  bills$veklep_pid <- NA_character_
-  
-  # Skip non-law items
-  skip_pattern <- "výroční zpráva|zpráva o|ratifik|smlouva mezi|dohoda o|protokol"
-  
-  for (i in seq_len(nrow(bills))) {
-    
-    if (str_detect(tolower(bills$title[i]), skip_pattern)) next
-    
-    pid <- tryCatch(
-      get_veklep_pid_for_tisk(bills$id_tisk[i]),
-      error = function(e) NULL
-    )
-    
-    if (!is.null(pid)) {
-      bills$veklep_pid[i] <- pid
-      message("  Tisk ", bills$id_tisk[i], " → ", pid)
-    }
-    
-    Sys.sleep(0.3)
-  }
-  
-  matched <- bills[!is.na(bills$veklep_pid), ]
-  matched <- matched[!duplicated(matched$veklep_pid), ]
-  message("Matched ", nrow(matched), " of ", nrow(bills), " bills")
-  matched
-}
