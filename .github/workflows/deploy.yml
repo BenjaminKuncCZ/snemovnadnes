@@ -7,6 +7,8 @@ on:
       - "app.R"
       - "R/04_database.R"
       - "R/10_alerts.R"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -15,19 +17,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Write .Renviron from GitHub Secrets so it can be bundled in the deploy
-      - name: Write .Renviron
+      # shinyapps.io has no env vars, so app.R sources secrets.R from the bundle.
+      # Generate it from GitHub Secrets (secrets.R is gitignored).
+      - name: Write secrets.R
+        env:
+          SUPABASE_HOST: ${{ secrets.SUPABASE_HOST }}
+          SUPABASE_PORT: ${{ secrets.SUPABASE_PORT }}
+          SUPABASE_DB: ${{ secrets.SUPABASE_DB }}
+          SUPABASE_USER: ${{ secrets.SUPABASE_USER }}
+          SUPABASE_PASSWORD: ${{ secrets.SUPABASE_PASSWORD }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
         run: |
-          cat > .Renviron << 'RENVIRON'
-          SUPABASE_HOST=${{ secrets.SUPABASE_HOST }}
-          SUPABASE_PORT=${{ secrets.SUPABASE_PORT }}
-          SUPABASE_DB=${{ secrets.SUPABASE_DB }}
-          SUPABASE_USER=${{ secrets.SUPABASE_USER }}
-          SUPABASE_PASSWORD=${{ secrets.SUPABASE_PASSWORD }}
-          RESEND_API_KEY=${{ secrets.RESEND_API_KEY }}
-          RESEND_FROM=${{ secrets.RESEND_FROM }}
-          APP_URL=https://snemovnadnes.cz
-          RENVIRON
+          python3 - <<'PY'
+          import os, json
+          keys = ["SUPABASE_HOST","SUPABASE_PORT","SUPABASE_DB","SUPABASE_USER",
+                  "SUPABASE_PASSWORD","RESEND_API_KEY","RESEND_FROM"]
+          lines = ["Sys.setenv("]
+          pairs = [f"  {k} = {json.dumps(os.environ.get(k, ''))}" for k in keys]
+          pairs.append('  APP_URL = "https://snemovnadnes.cz"')
+          open("secrets.R", "w").write("\n".join(lines) + "\n" + ",\n".join(pairs) + "\n)\n")
+          PY
 
       - uses: r-lib/actions/setup-r@v2
         with:
@@ -37,24 +47,24 @@ jobs:
         run: Rscript -e 'install.packages("rsconnect")'
 
       - name: Deploy to shinyapps.io
-  env:
-    SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
-    SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
-  run: |
-    Rscript -e '
-      rsconnect::setAccountInfo(
-        name   = "dopady",
-        token  = Sys.getenv("SHINYAPPS_TOKEN"),
-        secret = Sys.getenv("SHINYAPPS_SECRET")
-      )
-      rsconnect::deployApp(
-        appDir   = ".",
-        appName  = "snemovnadnes",
-        account  = "dopady",
-        server   = "shinyapps.io",
-        appFiles = c("app.R", "secrets.R", "renv.lock",
-                     "R/04_database.R", "R/10_alerts.R"),
-        forceUpdate   = TRUE,
-        launch.browser = FALSE
-      )
-    '
+        env:
+          SHINYAPPS_TOKEN: ${{ secrets.SHINYAPPS_TOKEN }}
+          SHINYAPPS_SECRET: ${{ secrets.SHINYAPPS_SECRET }}
+        run: |
+          Rscript -e '
+            rsconnect::setAccountInfo(
+              name   = "dopady",
+              token  = Sys.getenv("SHINYAPPS_TOKEN"),
+              secret = Sys.getenv("SHINYAPPS_SECRET")
+            )
+            rsconnect::deployApp(
+              appDir   = ".",
+              appName  = "snemovnadnes",
+              account  = "dopady",
+              server   = "shinyapps.io",
+              appFiles = c("app.R", "secrets.R",
+                           "R/04_database.R", "R/10_alerts.R"),
+              forceUpdate    = TRUE,
+              launch.browser = FALSE
+            )
+          '
