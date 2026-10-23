@@ -9,3 +9,4 @@ data/heartbeat.log
 .DS_Store
 Thumbs.db
 secrets.R
+rsconnect/
