@@ -41,10 +41,18 @@ jobs:
 
       - uses: r-lib/actions/setup-r@v2
         with:
-          r-version: "4.3.2"
+          r-version: "release"
+          use-public-rspm: true
 
-      - name: Install rsconnect
-        run: Rscript -e 'install.packages("rsconnect")'
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y libpq-dev libcurl4-openssl-dev libssl-dev
+
+      # rsconnect records package versions from what is INSTALLED on this machine,
+      # so every package the bundled files use must be installed here first.
+      - name: Install app packages
+        run: |
+          Rscript -e 'install.packages(c("rsconnect", "shiny", "plotly", "DBI", "dplyr", "stringr", "jsonlite", "httr2", "RPostgres", "RSQLite", "rprojroot", "uuid"))'
+          Rscript -e 'stopifnot(all(c("shiny","plotly","DBI","dplyr","stringr","jsonlite","httr2","RPostgres","RSQLite","rprojroot","uuid","rsconnect") %in% rownames(installed.packages())))'
 
       - name: Deploy to shinyapps.io
         env:
