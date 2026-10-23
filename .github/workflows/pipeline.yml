@@ -30,6 +30,7 @@ jobs:
       # ── App ───────────────────────────────────────────────────────────────────
       APP_URL:           https://snemovnadnes.cz
       # ── Pipeline ──────────────────────────────────────────────────────────────
+      GEMINI_MODEL:      gemini-flash-latest
       # Tells 07_scheduled_run.R where to setwd() — avoids the rstudioapi call
       SCHEDULED_ROOT:    ${{ github.workspace }}
 

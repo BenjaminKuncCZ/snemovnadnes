@@ -6,7 +6,7 @@ library(dplyr)
 
 #' Extract and clean text from a PDF
 
-call_gemini <- function(prompt, model = "gemini-2.5-flash") {
+call_gemini <- function(prompt, model = Sys.getenv("GEMINI_MODEL", "gemini-flash-latest")) {
   message("Sending to Gemini (", model, ")...")
   api_key <- Sys.getenv("GEMINI_API_KEY")
   url <- paste0("https://generativelanguage.googleapis.com/v1beta/models/",
@@ -193,7 +193,7 @@ extract_impacts <- function(text,
   prompt <- paste0(doc_context, "\n\n", RIA_EXTRACTION_PROMPT, text)
   
   raw <- if (backend == "gemini") {
-    call_gemini(prompt, model = model %||% "gemini-2.5-flash")
+    call_gemini(prompt, model = model %||% Sys.getenv("GEMINI_MODEL", "gemini-flash-latest"))
   } else if (backend == "claude") {
     call_claude_api(prompt)
   } else {
@@ -366,27 +366,4 @@ extract_section_by_heading <- function(text, max_chars = 6000) {
   
   message("Final text length: ", nchar(relevant), " chars")
   relevant
-}
-
-call_gemini <- function(prompt, model = "gemini-2.5-flash") {
-  message("Sending to Gemini (", model, ")...")
-  api_key <- Sys.getenv("GEMINI_API_KEY")
-  url <- paste0("https://generativelanguage.googleapis.com/v1beta/models/",
-                model, ":generateContent?key=", api_key)
-  
-  request(url) |>
-    req_headers("Content-Type" = "application/json") |>
-    req_body_json(list(
-      contents         = list(list(parts = list(list(text = prompt)))),
-      generationConfig = list(temperature = 0.1, maxOutputTokens = 8192)
-    )) |>
-    req_timeout(90) |>
-    req_retry(
-      is_transient = \(r) resp_status(r) %in% c(429, 500, 502, 503, 504),
-      max_tries    = 5,
-      backoff      = \(i) c(10, 30, 60, 120)[min(i, 4)]
-    ) |>
-    req_perform() |>
-    resp_body_json() |>
-    (\(r) r$candidates[[1]]$content$parts[[1]]$text)()
 }

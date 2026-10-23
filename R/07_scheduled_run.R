@@ -444,6 +444,18 @@ if (!interactive() || Sys.getenv("RUN_PIPELINE") == "1") {
     dbDisconnect(db_hb)
   }
 
+  # Fail loudly: a run that attempted work but saved nothing is NOT a success.
+  attempted <- pipeline_counts$success + pipeline_counts$error + pipeline_counts$no_document
+  pipeline_failed <- attempted > 0 && pipeline_counts$success == 0 &&
+    pipeline_counts$error >= max(1L, as.integer(0.5 * attempted))
+  if (pipeline_failed) {
+    msg <- paste0("Pipeline saved 0 bills (errors: ", pipeline_counts$error, ")")
+    log_msg(msg, "ERROR")
+    send_error_alert("run_pipeline", msg)
+    ping_healthchecks(success = FALSE)
+    log_msg("=== Scheduled run FAILED ===")
+    quit(status = 1)
+  }
   ping_healthchecks(success = TRUE)
 }
 
