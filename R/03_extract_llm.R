@@ -140,8 +140,10 @@ Závěrečná zpráva RIA obvykle porovnává několik variant řešení (např.
      "Výběr nejvhodnější varianty", "Závěr a doporučení", "doporučená varianta", "navrhovaná varianta",
      "preferovaná varianta", "jako vhodnější byla vyhodnocena varianta", "navrhuje se varianta ...",
      "zvolena byla varianta ...", "porovnání variant" a návazná tabulka s hodnocením.
-  c) Pokud dokument varianty neobsahuje (např. jde o důvodovou zprávu nebo přehled dopadů), považuj za
-     "vybranou variantu" samotnou navrhovanou úpravu a do pole "vybrana_varianta" napiš "bez variant".
+  c) Pokud dokument varianty neobsahuje (např. jde o důvodovou zprávu, transpozici nebo přehled dopadů),
+     je "vybranou variantou" samotná NAVRHOVANÁ ÚPRAVA (navrhovaný zákon či novela). Do pole
+     "vybrana_varianta" napiš "bez variant (jediná navrhovaná úprava)". Absence variant NEZNAMENÁ, že nejsou
+     žádné dopady k extrakci — dopady navrhované úpravy extrahuj podle KROKU 2.
   d) Pokud varianty existují, ale vybraná není z textu jednoznačně patrná, nastav "vybrana_varianta"
      na "nelze určit" a v "poznamky" to vysvětli. NEHÁDEJ a nepředpokládej, že vybraná je poslední varianta.
 
@@ -153,10 +155,22 @@ KROK 2 — EXTRAKCE NÁKLADŮ A PŘÍNOSŮ POUZE PRO VYBRANOU VARIANTU
   uveď je tak, jak jsou popsány pro vybranou variantu.
 - Nepřičítej ani neodečítej částky mezi variantami. Přebírej částky tak, jak jsou uvedeny pro vybranou variantu.
 
+Pokud dokument NEOBSAHUJE varianty (jediná navrhovaná úprava), extrahuj VŠECHNY dopady navrhované úpravy,
+které dokument kdekoli uvádí — i krátké, slovní a nevyčíslené. Projdi zejména části o dopadech na:
+státní rozpočet a veřejné rozpočty, obce a kraje, podnikatele a podnikatelské prostředí (včetně
+administrativní zátěže), zaměstnavatele a zaměstnance, domácnosti a občany, spotřebitele, sociální dopady,
+životní prostředí a ostatní dopady (např. na rovnost žen a mužů, bezpečnost, korupci, ochranu soukromí).
+Typické nadpisy: "Předpokládaný hospodářský a finanční dopad", "Dopady na státní rozpočet",
+"Hodnocení dopadů regulace", "Sociální dopady", "Dopady na podnikatelské prostředí", "Zhodnocení dopadů".
+Věta typu "návrh nemá dopad na státní rozpočet" NENÍ náklad ani přínos — nezapisuj ji jako položku;
+pouze ji zmiň v "poznamky".
+
 Pravidla pro pole "typ_dokumentu":
 - "RIA" — pokud dokument obsahuje formální Závěrečnou zprávu z hodnocení dopadů regulace (ZZ RIA), tj. strukturované hodnocení s identifikací variant, náklady a přínosy
-- "prehled_dopadu" — pokud dokument obsahuje pouze stručný přehled dopadů, přehled dopadů regulace, nebo sekci Zhodnocení dopadů či Předpokládaný hospodářský a finanční dopad v důvodové zprávě (ale NE plnohodnotnou ZZ RIA)
-- "zadne" — pokud dokument neobsahuje žádné hodnocení dopadů
+- "prehled_dopadu" — pokud dokument popisuje dopady navrhované úpravy jakkoli (i stručně, slovně, bez čísel), např. sekcí Zhodnocení dopadů či Předpokládaný hospodářský a finanční dopad v důvodové zprávě (ale NE plnohodnotná ZZ RIA)
+- "zadne" — POUZE pokud dokument žádné dopady navrhované úpravy nepopisuje, nebo výslovně uvádí, že návrh nemá žádné dopady
+Poznámka: věta, že "RIA nebyla zpracována / se neprovádí", znamená jen, že neexistuje formální ZZ RIA
+(typ_dokumentu pak nesmí být "RIA"). Neznamená to "zadne" — pokud dokument dopady popisuje jinde, je to "prehled_dopadu".
 
 Pole "dopady_zhodnoceny" musí být v souladu s "typ_dokumentu":
 - true  pokud typ_dokumentu je "RIA" nebo "prehled_dopadu"
@@ -180,8 +194,9 @@ I pokud nejsou vyjádřeny v Kč, zahrň je jako kvalitativní položky (ale vž
 
 Vrať tento JSON:
 {
-  "vybrana_varianta": "např. \'Varianta 2 — zavedení povinného registru\' nebo \'bez variant\' nebo \'nelze určit\'",
+  "vybrana_varianta": "např. \'Varianta 2 — zavedení povinného registru\' nebo \'bez variant (jediná navrhovaná úprava)\' nebo \'nelze určit\'",
   "zduvodneni_vyberu": "1 věta: na základě čeho/kde v dokumentu je patrné, že jde o vybranou variantu",
+  "oddil_dopadu": "přesný nadpis (max. 120 znaků) hlavního oddílu dokumentu, ze kterého čerpáš náklady a přínosy, např. \'Předpokládaný hospodářský a finanční dopad\'; více oddílů odděl středníkem; pokud žádný, prázdný řetězec",
   "dopady_zhodnoceny": true nebo false,
   "typ_dokumentu": "RIA" nebo "prehled_dopadu" nebo "zadne",
   "shrnutí": "2-3 věty o cíli regulace a o tom, co vybraná varianta znamená",
@@ -206,8 +221,10 @@ Vrať tento JSON:
 }
 
 Každá položka v "prinosy" musí mít vyplněné pole "subjekt". Nikdy ho nevynechej.
-DŮLEŽITÉ: Pokud text říká RIA nebyla zpracována, nevyžaduje RIA, RIA se neprovádí nebo podobně,
-nastav dopady_zhodnoceny na false A typ_dokumentu na "zadne".
+DŮLEŽITÉ: Pokud text říká, že RIA nebyla zpracována, nevyžaduje se nebo se neprovádí, nesmí být
+typ_dokumentu "RIA". Pokud dokument dopady navrhované úpravy popisuje jinde (viz výše), použij
+"prehled_dopadu" a dopady extrahuj. Teprve pokud dokument žádné dopady nepopisuje, nastav
+dopady_zhodnoceny na false A typ_dokumentu na "zadne".
 
 Výstup musí být česky.
 
@@ -225,11 +242,11 @@ extract_impacts <- function(text,
   doc_context <- switch(doc_type,
                         ria_keyword = "Analyzuješ ZÁVĚREČNOU ZPRÁVU Z HODNOCENÍ DOPADŮ REGULACE (ZZ RIA). Jde o plnohodnotný RIA dokument.",
                         ria_type    = "Analyzuješ ZÁVĚREČNOU ZPRÁVU Z HODNOCENÍ DOPADŮ REGULACE (ZZ RIA). Jde o plnohodnotný RIA dokument.",
-                        mp_zip      = "Analyzuješ přílohu (zip), která MŮŽE obsahovat RIA. Nastav dopady_zhodnoceny na true pouze pokud text explicitně obsahuje sekci hodnocení nákladů a přínosů.",
-                        zd_fallback = "DŮLEŽITÉ: Analyzuješ DŮVODOVOU ZPRÁVU (ne RIA dokument). Důvodová zpráva není RIA. Nastav dopady_zhodnoceny na false, pokud text neobsahuje explicitní tabulku nebo výčet vyčíslených nákladů a přínosů. Krátký odstavec o dopadu na státní rozpočet nestačí.",
-                        ma_fallback = "DŮLEŽITÉ: Analyzuješ obecný MATERIÁL (ne RIA dokument). Nastav dopady_zhodnoceny na false, pokud text neobsahuje explicitní tabulku nebo výčet vyčíslených nákladů a přínosů.",
-                        # default — unknown source, be conservative
-                        "Analyzuješ dokument neznámého typu. Nastav dopady_zhodnoceny na true pouze pokud text obsahuje explicitní sekci hodnocení nákladů a přínosů s konkrétními položkami."
+                        mp_zip      = "Analyzuješ přílohu (zip), která MŮŽE obsahovat ZZ RIA. Pokud neobsahuje formální ZZ RIA, ale popisuje dopady navrhované úpravy, použij typ_dokumentu \"prehled_dopadu\".",
+                        zd_fallback = "DŮLEŽITÉ: Analyzuješ DŮVODOVOU ZPRÁVU (ne samostatnou ZZ RIA). typ_dokumentu \"RIA\" nepoužívej. Pokud důvodová zpráva popisuje dopady navrhované úpravy (i stručně a slovně, např. dopad na státní rozpočet, podnikatele, občany), použij \"prehled_dopadu\" a tyto dopady extrahuj; \"zadne\" jen pokud žádné dopady nepopisuje.",
+                        ma_fallback = "DŮLEŽITÉ: Analyzuješ obecný MATERIÁL (ne samostatnou ZZ RIA). typ_dokumentu \"RIA\" nepoužívej. Pokud materiál popisuje dopady navrhované úpravy (i stručně a slovně), použij \"prehled_dopadu\" a tyto dopady extrahuj; \"zadne\" jen pokud žádné dopady nepopisuje.",
+                        # default — unknown source
+                        "Analyzuješ dokument neznámého typu. Pokud popisuje dopady navrhované úpravy, extrahuj je a použij \"prehled_dopadu\" (nebo \"RIA\" při formální ZZ RIA); \"zadne\" jen pokud žádné dopady nepopisuje."
   )
   
   prompt <- paste0(doc_context, "\n\n", RIA_EXTRACTION_PROMPT, text)
@@ -313,9 +330,11 @@ parse_llm_response <- function(raw_text) {
   varianta <- result$vybrana_varianta
   if (!is.null(varianta) && is.character(varianta) && nzchar(varianta)) {
     zduv <- result$zduvodneni_vyberu
+    oddil <- result$oddil_dopadu
     prefix <- paste0("Vybraná varianta: ", varianta,
                      if (is.character(zduv) && nzchar(zduv)) paste0(" (", zduv, ")") else "",
-                     ".")
+                     ".",
+                     if (is.character(oddil) && nzchar(oddil)) paste0(" Zdroj dopadů: ", oddil, ".") else "")
     result$poznamky <- trimws(paste(prefix, result$poznamky %||% ""))
   }
   
