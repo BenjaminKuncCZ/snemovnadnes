@@ -92,10 +92,10 @@ process_bill <- function(db, material, backend = Sys.getenv("LLM_BACKEND", "olla
   
   # Step 7: Prepare text for LLM
   text_for_llm <- tryCatch(
-    extract_section_by_heading(extracted$ria_section, max_chars = 10000),
+    extract_section_by_heading(extracted$ria_section, max_chars = 60000),
     error = function(e) {
       log_msg(paste("Section extraction failed, using trim:", e$message), "WARN")
-      trim_to_context(extracted$ria_section, max_chars = 4000)
+      trim_to_context(extracted$ria_section, max_chars = 30000)
     }
   )
   if (is.null(text_for_llm) || nchar(text_for_llm) < 50) {
