@@ -49,6 +49,7 @@ jobs:
       # libcurl / ssl   → httr2, curl
       # libxml2         → xml2, rvest
       # font stack      → officer / ragg (needed by officer's dependencies)
+      # antiword        → reading legacy .doc attachments
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
@@ -64,7 +65,8 @@ jobs:
             libfribidi-dev \
             libpng-dev \
             libtiff5-dev \
-            libjpeg-dev
+            libjpeg-dev \
+            antiword
 
       # ── R package cache ───────────────────────────────────────────────────────
       # Keyed on the renv.lock so the cache is invalidated when dependencies change.

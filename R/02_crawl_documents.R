@@ -39,7 +39,6 @@ fetch_latest_materials <- function(n = 40) {
 get_material_documents <- function(pid) {
   
   url <- paste0("https://www.odok.cz/portal/veklep/material/", pid, "/json")
-  
   message("Fetching material JSON: ", pid)
   
   result <- tryCatch({
@@ -55,16 +54,21 @@ get_material_documents <- function(pid) {
   
   if (is.null(result)) return(NULL)
   
-  # Flatten attachments into a data frame
+  if (length(result$attachments) == 0) {
+    message("No attachments in material JSON for ", pid,
+            " — top-level keys: ", paste(names(result), collapse = ", "))
+    return(data.frame())          # find_ria_document() returns NULL -> "no_document"
+  }
+  
   attachments <- lapply(result$attachments, function(a) {
     data.frame(
-      pid      = a$pid,
-      name     = a$name,
-      old_name = a$old_name,
-      type_id  = a$type$id,
+      pid       = a$pid,
+      name      = a$name,
+      old_name  = a$old_name,
+      type_id   = a$type$id,
       type_name = a$type$name,
-      size     = a$size,
-      uri      = a$uri,
+      size      = a$size,
+      uri       = a$uri,
       stringsAsFactors = FALSE
     )
   })
@@ -131,52 +135,55 @@ download_document <- function(ria_doc, dest_dir = "data/pdfs") {
   
   dir.create(dest_dir, showWarnings = FALSE, recursive = TRUE)
   
-  ext <- str_extract(ria_doc$name, "\\.[a-zA-Z]+$")
-  dest_path <- file.path(dest_dir, ria_doc$name)
+  att_id <- str_extract(ria_doc$uri, "[A-Za-z0-9]{8,}(?=/?$)")
+  if (is.na(att_id)) att_id <- format(Sys.time(), "%H%M%S")
+  clean_name <- str_replace_all(ria_doc$name, "[/\\\\:*?\"<>|]", "_")
+  safe_name  <- paste0(att_id, "_", clean_name)
+  dest_path  <- file.path(dest_dir, safe_name)
   
-  # Download if not already present
+  # throw away broken leftovers
+  if (file.exists(dest_path) && file.size(dest_path) < 1000) file.remove(dest_path)
+  
   if (!file.exists(dest_path)) {
     message("Downloading: ", ria_doc$uri)
-    tryCatch({
+    ok <- tryCatch({
       request(ria_doc$uri) |>
         req_headers("User-Agent" = "Mozilla/5.0 (compatible; SnemovniDopady/1.0)") |>
         req_timeout(60) |>
+        req_retry(max_tries = 3, backoff = ~ 5) |>
         req_perform(path = dest_path)
+      TRUE
     }, error = function(e) {
       message("Download failed: ", e$message)
-      return(NULL)
+      FALSE
     })
+    if (!ok || !file.exists(dest_path) || file.size(dest_path) < 1000) {
+      if (file.exists(dest_path)) file.remove(dest_path)
+      message("Download failed or file too small: ", safe_name)
+      return(NULL)
+    }
   } else {
     message("Already downloaded: ", dest_path)
   }
   
-  # Handle zip extraction — always run this even if already downloaded
   if (str_detect(dest_path, "\\.zip$")) {
     message("Extracting zip...")
-    extract_dir <- file.path(dest_dir, str_remove(ria_doc$name, "\\.zip$"))
+    extract_dir <- file.path(dest_dir, str_remove(safe_name, "\\.zip$"))
     dir.create(extract_dir, showWarnings = FALSE)
     unzip(dest_path, exdir = extract_dir, overwrite = TRUE)
     
-    # Find all usable files inside
     inner_files <- list.files(extract_dir,
                               pattern = "\\.(pdf|docx?)$",
-                              full.names = TRUE,
-                              recursive = TRUE,
-                              ignore.case = TRUE)
-    
+                              full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
     message("Files in zip: ", paste(basename(inner_files), collapse = ", "))
-    
     if (length(inner_files) == 0) {
       message("No usable files found in zip")
       return(NULL)
     }
-    
-    # Prefer files with RIA keywords in name
     ria_inner <- inner_files[str_detect(tolower(inner_files),
                                         "ria|dopad|hodnocen|naklad|prinosy")]
     chosen <- if (length(ria_inner) > 0) ria_inner[1] else inner_files[1]
     message("Using from zip: ", basename(chosen))
-    
     return(list(path = chosen, type = ria_doc$type))
   }
   
