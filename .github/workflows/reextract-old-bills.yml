@@ -1,0 +1,123 @@
+name: Re-extract old bills (one-off, disables itself)
+
+# Re-runs the recommended-variant extraction for bills extracted with the old
+# prompt, in daily batches. When nothing is left, R/11_reextract_old.R writes
+# data/reextract_done.flag and the last step disables this workflow, so it
+# never runs again. Runs at 12:00 UTC, i.e. well after the daily pipeline
+# (05:00 UTC) has finished.
+
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only list the bills that would be processed (no Gemini calls, no changes)"
+        type: boolean
+        default: false
+      batch_size:
+        description: "Bills per run"
+        type: string
+        default: "40"
+
+permissions:
+  contents: read
+  actions: write      # needed to disable this workflow when finished
+
+concurrency:
+  group: reextract-old-bills
+  cancel-in-progress: false
+
+jobs:
+  reextract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    env:
+      SUPABASE_HOST:     aws-0-eu-west-1.pooler.supabase.com
+      SUPABASE_PORT:     "5432"
+      SUPABASE_DB:       postgres
+      SUPABASE_USER:     postgres.ktehtgonacsexkglnohi
+      SUPABASE_PASSWORD: ${{ secrets.SUPABASE_PASSWORD }}
+      GEMINI_API_KEY:    ${{ secrets.GEMINI_API_KEY }}
+      LLM_BACKEND:       gemini
+      GEMINI_MODEL:      gemini-flash-latest
+      SCHEDULED_ROOT:    ${{ github.workspace }}
+      REEXTRACT_BATCH:       ${{ inputs.batch_size || '40' }}
+      REEXTRACT_MAX_MINUTES: "75"
+      REEXTRACT_DRY_RUN:     ${{ inputs.dry_run && 'true' || 'false' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.3.2'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libpq-dev \
+            libpoppler-cpp-dev \
+            libcurl4-openssl-dev \
+            libssl-dev \
+            libxml2-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libharfbuzz-dev \
+            libfribidi-dev \
+            libpng-dev \
+            libtiff5-dev \
+            libjpeg-dev \
+            antiword
+
+      - name: Cache R packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.R_LIBS_USER }}
+          key: ${{ runner.os }}-r-4.3.2-${{ hashFiles('renv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-r-4.3.2-
+
+      - name: Install R packages
+        run: |
+          Rscript -e '
+            pkgs <- c(
+              "httr2", "rvest", "xml2", "pdftools", "stringr", "dplyr",
+              "DBI", "RPostgres", "jsonlite", "officer", "uuid",
+              "stringi", "curl", "openssl", "lubridate"
+            )
+            missing <- pkgs[!pkgs %in% rownames(installed.packages())]
+            if (length(missing) > 0) {
+              install.packages(
+                missing,
+                repos = "https://packagemanager.posit.co/cran/latest",
+                Ncpus = 2
+              )
+            }
+          '
+
+      - name: Create data directories
+        run: mkdir -p data/pdfs
+
+      - name: Re-extract old bills
+        run: Rscript R/11_reextract_old.R
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reextract-log-${{ github.run_id }}
+          path: data/reextract_*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # The script writes the flag only when no old bill is left (never on a dry run).
+      - name: Disable this workflow (everything is re-extracted)
+        if: success() && hashFiles('data/reextract_done.flag') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow disable reextract-old-bills.yml --repo "${{ github.repository }}"
