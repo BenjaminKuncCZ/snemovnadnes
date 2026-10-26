@@ -1,8 +1,11 @@
 # ── One-off, self-limiting re-extraction of old bills ─────────────────────────
 #
 # Re-runs the LLM extraction (recommended-variant logic, see 03_extract_llm.R)
-# for every bill whose latest extraction is in the OLD format, i.e. its
-# impacts.poznamky does not start with "Vybraná varianta:".
+# for
+#   (a) every bill whose latest extraction is in the OLD format, i.e. its
+#       impacts.poznamky does not start with "Vybraná varianta:", and
+#   (b) every bill that has NO extraction at all (earlier errors; such bills
+#       outside the daily pipeline's session window were never retried).
 #
 # Run by .github/workflows/reextract-old-bills.yml once a day. Each run handles
 # at most REEXTRACT_BATCH bills (default 40) and stops starting new bills after
@@ -25,6 +28,10 @@
 #     To retry failed bills later:
 #       UPDATE reextract_log SET attempts = 0 WHERE status = 'failed';
 #   * Bills with "Nebyl nalezen vhodný dokument." are left to the daily pipeline.
+#   * A bill of kind (b) that has no suitable document gets the same
+#     "Nebyl nalezen vhodný dokument." placeholder row the pipeline writes.
+#   * Why a bill failed is stored in reextract_log.note, e.g.
+#       SELECT pid, status, attempts, note FROM reextract_log WHERE status = 'failed';
 #
 # Environment: SUPABASE_*, GEMINI_API_KEY, LLM_BACKEND (default "gemini"),
 #   REEXTRACT_BATCH, REEXTRACT_MAX_MINUTES,
@@ -70,10 +77,12 @@ ensure_log_table <- function(db) {
 
 # Bills still to do: latest extraction is in the old format, not yet handled.
 .pending_from <- "
-  FROM (SELECT DISTINCT ON (pid) pid, poznamky FROM impacts ORDER BY pid, id DESC) i
-  LEFT JOIN reextract_log r ON r.pid = i.pid
-  WHERE COALESCE(i.poznamky, '') NOT LIKE 'Vybraná varianta:%'
-    AND COALESCE(i.poznamky, '') <> 'Nebyl nalezen vhodný dokument.'
+  FROM bills b
+  LEFT JOIN (SELECT DISTINCT ON (pid) pid, poznamky FROM impacts ORDER BY pid, id DESC) i ON i.pid = b.pid
+  LEFT JOIN reextract_log r ON r.pid = b.pid
+  WHERE (i.pid IS NULL
+         OR (COALESCE(i.poznamky, '') NOT LIKE 'Vybraná varianta:%'
+             AND COALESCE(i.poznamky, '') <> 'Nebyl nalezen vhodný dokument.'))
     AND (r.pid IS NULL OR (r.status = 'failed' AND r.attempts < $1))
 "
 
@@ -83,7 +92,7 @@ count_pending <- function(db) {
 }
 
 get_pending <- function(db, n) {
-  dbGetQuery(db, paste("SELECT i.pid", .pending_from, "ORDER BY i.pid LIMIT $2"),
+  dbGetQuery(db, paste("SELECT b.pid", .pending_from, "ORDER BY b.pid LIMIT $2"),
              params = list(REEXTRACT_MAX_ATTEMPTS, as.integer(n)))$pid
 }
 
@@ -106,17 +115,26 @@ extract_for_pid <- function(pid, backend = Sys.getenv("LLM_BACKEND", "gemini")) 
 
   fail <- function(note, status = "failed") list(status = status, note = note)
 
-  docs <- tryCatch(get_material_documents(pid), error = function(e) NULL)
-  if (is.null(docs)) return(fail("VeKLEP JSON nedostupný"))
+  docs_err <- NULL
+  docs <- tryCatch(get_material_documents(pid), error = function(e) { docs_err <<- e$message; NULL })
+  if (is.null(docs))
+    return(fail(paste0("VeKLEP JSON nedostupný",
+                       if (!is.null(docs_err)) paste0(": ", docs_err) else " (chyba spojení nebo časový limit)")))
 
   ria_doc <- find_ria_document(docs)
   if (is.null(ria_doc)) return(fail("žádný vhodný dokument", status = "no_document"))
 
-  downloaded <- tryCatch(download_document(ria_doc), error = function(e) NULL)
-  if (is.null(downloaded)) return(fail("stažení dokumentu selhalo"))
+  dl_err <- NULL
+  downloaded <- tryCatch(download_document(ria_doc), error = function(e) { dl_err <<- e$message; NULL })
+  if (is.null(downloaded))
+    return(fail(paste0("stažení dokumentu selhalo: ", ria_doc$name,
+                       if (!is.null(dl_err)) paste0(" (", dl_err, ")") else "")))
 
-  extracted <- tryCatch(extract_document_text(downloaded$path), error = function(e) NULL)
-  if (is.null(extracted)) return(fail("čtení textu dokumentu selhalo"))
+  rd_err <- NULL
+  extracted <- tryCatch(extract_document_text(downloaded$path), error = function(e) { rd_err <<- e$message; NULL })
+  if (is.null(extracted))
+    return(fail(paste0("čtení textu selhalo: ", basename(downloaded$path),
+                       if (!is.null(rd_err)) paste0(" (", rd_err, ")") else "")))
 
   text_for_llm <- tryCatch(
     extract_section_by_heading(extracted$ria_section, max_chars = 60000),
@@ -124,11 +142,14 @@ extract_for_pid <- function(pid, backend = Sys.getenv("LLM_BACKEND", "gemini")) 
   )
   if (is.null(text_for_llm) || nchar(text_for_llm) < 50) return(fail("text je příliš krátký"))
 
+  llm_err <- NULL
   result <- tryCatch(
     extract_impacts(text_for_llm, backend = backend, doc_type = downloaded$type),
-    error = function(e) { log_msg(paste("LLM error:", e$message), "WARN"); NULL }
+    error = function(e) { llm_err <<- e$message; log_msg(paste("LLM error:", e$message), "WARN"); NULL }
   )
-  if (is.null(result)) return(fail("extrakce LLM selhala"))
+  if (is.null(result))
+    return(fail(if (!is.null(llm_err)) paste0("Gemini: ", substr(llm_err, 1, 300))
+                else "odpověď modelu není validní JSON"))
 
   # as in 06_run_pipeline.R, step 8b
   if (downloaded$type %in% c("zd_fallback", "ma_fallback")) {
@@ -141,6 +162,10 @@ extract_for_pid <- function(pid, backend = Sys.getenv("LLM_BACKEND", "gemini")) 
 }
 
 # ── Replace the old extraction (one transaction, keeps original created_at) ──
+
+has_impact_row <- function(db, pid) {
+  nrow(dbGetQuery(db, "SELECT 1 FROM impacts WHERE pid = $1 LIMIT 1", params = list(pid))) > 0
+}
 
 count_items <- function(db, pid) {
   as.integer(dbGetQuery(db, "
@@ -171,6 +196,18 @@ reextract_one <- function(db, pid) {
   out <- tryCatch(extract_for_pid(pid), error = function(e) list(status = "failed", note = e$message))
 
   if (out$status == "no_document") {
+    if (!has_impact_row(db, pid)) {
+      # same placeholder row the daily pipeline writes for bills without a document
+      saved <- tryCatch({
+        save_impact(db, pid, list(ria_provedena = FALSE, typ_dokumentu = "zadne", shrnutí = "",
+                                  naklady = list(), prinosy = list(),
+                                  poznamky = "Nebyl nalezen vhodný dokument."), "")
+        TRUE
+      }, error = function(e) FALSE)
+      record_status(db, pid, if (saved) "done" else "failed",
+                    if (saved) "žádný vhodný dokument — uložen záznam 'bez hodnocení'" else "uložení záznamu selhalo")
+      return(if (saved) "done" else "failed")
+    }
     record_status(db, pid, "kept_old", out$note)
     return("kept_old")
   }

@@ -1074,8 +1074,7 @@ server <- function(input, output, session) {
         div(class = "bill-meta",
             span(class = pill_class, pill_text),
             span(row$predkladatel),
-            span(format(as.Date(str_extract(row$published, "\\d{2} \\w+ \\d{4}"),
-                                "%d %b %Y"), "%d. %m. %Y", locale = "Czech"))
+            span(if (!is.na(row$bill_date)) format(row$bill_date, "%d. %m. %Y"))
         )
       )
     })
