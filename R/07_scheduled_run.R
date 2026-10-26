@@ -37,6 +37,7 @@ source("R/04_database.R")
 source("R/06_run_pipeline.R")   # defines process_bill() only — no auto-run
 source("R/08_komise_ria.R")
 source("R/10_alerts.R")
+source("R/11_reextract_old.R")  # provides retry_stuck_bills(); does not run when sourced
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -351,7 +352,24 @@ run_pipeline <- function(backend = "gemini") {
     "| Errors:", counts$error
   ))
   
+  # tell the caller which bills were just attempted (the retry step skips them)
+  attr(counts, "attempted") <- unique(as.character(matched$veklep_pid))
   invisible(counts)
+}
+
+# ── 4b. Retry bills that have no extraction at all ───────────────────────────
+# Safety net for bills outside the scanned session window that errored earlier.
+
+run_retry_step <- function(exclude = character(), max_n = 10) {
+  tryCatch({
+    db_retry <- get_db()
+    on.exit(dbDisconnect(db_retry), add = TRUE)
+    retry_stuck_bills(db_retry, max_n = max_n, exclude = exclude)
+  }, error = function(e) {
+    log_msg(paste("Retry step error:", e$message), "ERROR")
+    send_error_alert("retry_stuck_bills", e$message)
+    NULL
+  })
 }
 
 # ── 5. Refresh metadata for all bills already in DB ──────────────────────────
@@ -411,6 +429,10 @@ if (!interactive() || Sys.getenv("RUN_PIPELINE") == "1") {
     send_error_alert("run_pipeline", e$message)
     list(success = 0L, skipped = 0L, error = 1L, no_document = 0L)
   })
+
+  attempted_pids <- attr(pipeline_counts, "attempted")
+  if (is.null(attempted_pids)) attempted_pids <- character()
+  run_retry_step(exclude = attempted_pids)
 
   tryCatch({
     db_komise <- get_db()

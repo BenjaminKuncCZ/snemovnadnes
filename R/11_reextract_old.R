@@ -53,12 +53,15 @@ source("R/04_database.R")
 
 REEXTRACT_MAX_ATTEMPTS <- 3L
 
-log_file <- paste0("data/reextract_", format(Sys.Date(), "%Y%m%d"), ".log")
-
-log_msg <- function(msg, level = "INFO") {
-  line <- paste0("[", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "] [", level, "] ", msg)
-  message(line)
-  cat(line, "\n", file = log_file, append = TRUE)
+# When this file is sourced by the daily pipeline (07_scheduled_run.R), that
+# script's own log_msg()/log_file are used.
+if (!exists("log_msg", mode = "function")) {
+  log_file <- paste0("data/reextract_", format(Sys.Date(), "%Y%m%d"), ".log")
+  log_msg <- function(msg, level = "INFO") {
+    line <- paste0("[", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "] [", level, "] ", msg)
+    message(line)
+    cat(line, "\n", file = log_file, append = TRUE)
+  }
 }
 
 # ── Progress table ────────────────────────────────────────────────────────────
@@ -236,6 +239,50 @@ reextract_one <- function(db, pid) {
 
   record_status(db, pid, "done", paste0(result$typ_dokumentu %||% "?", ", položek: ", new_items))
   "done"
+}
+
+# ── Daily safety net for bills without any extraction ─────────────────────────
+# Called by the daily pipeline (07_scheduled_run.R). A bill that errored once and
+# lies outside the scanned session window would otherwise never be retried.
+# `exclude` = bills the pipeline has just attempted itself in this run.
+# Uses the same reextract_log (max. 3 attempts per bill, reason stored in note).
+
+get_stuck_bills <- function(db) {
+  dbGetQuery(db, "
+    SELECT b.pid
+    FROM bills b
+    LEFT JOIN reextract_log r ON r.pid = b.pid
+    WHERE NOT EXISTS (SELECT 1 FROM impacts i WHERE i.pid = b.pid)
+      AND (r.pid IS NULL OR (r.status = 'failed' AND r.attempts < $1))
+    ORDER BY b.pid
+    LIMIT 500
+  ", params = list(REEXTRACT_MAX_ATTEMPTS))$pid
+}
+
+retry_stuck_bills <- function(db, max_n = 10, exclude = character(), pause = 5) {
+  ensure_log_table(db)
+  pids <- head(setdiff(get_stuck_bills(db), exclude), max_n)
+  counts <- c(done = 0L, kept_old = 0L, failed = 0L)
+  if (length(pids) == 0) {
+    log_msg("Retry: no bills without extraction.")
+    return(invisible(counts))
+  }
+  log_msg(paste("Retry: bills without extraction:", paste(pids, collapse = ", ")))
+  consecutive_failures <- 0L
+  for (pid in pids) {
+    status <- tryCatch(reextract_one(db, pid), error = function(e) {
+      log_msg(paste("Retry: unexpected error for", pid, ":", e$message), "ERROR"); "failed"
+    })
+    counts[[status]] <- counts[[status]] + 1L
+    log_msg(paste("Retry:", pid, "->", status))
+    consecutive_failures <- if (status == "failed") consecutive_failures + 1L else 0L
+    if (consecutive_failures >= 5L) {
+      log_msg("Retry: 5 failures in a row — stopping.", "WARN")
+      break
+    }
+    Sys.sleep(pause)
+  }
+  invisible(counts)
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
