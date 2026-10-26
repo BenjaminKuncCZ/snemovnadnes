@@ -315,8 +315,30 @@ save_impact <- function(db, pid, result, doc_path = "") {
 
 # ── Read functions for Shiny ──────────────────────────────────────────────────
 
+# Best available date of a bill, as a Date (NA when unknown):
+#   1. government_date  e.g. "2026-09-21T10:00:00Z"  (government approved the bill)
+#   2. published, but ONLY when it is the VeKLEP RSS date, e.g.
+#      "Wed, 01 Apr 2026 10:40:48 +0000". An ISO value ("2026-10-23T14:05:50Z")
+#      is just the day the pipeline processed the bill, so it is not used.
+# The RSS date is parsed by hand, so it does not depend on the server locale.
+bill_effective_date <- function(government_date, published) {
+  gov <- suppressWarnings(as.Date(substr(as.character(government_date), 1, 10),
+                                  format = "%Y-%m-%d"))
+  pub_chr <- as.character(published)
+  m <- regmatches(pub_chr, regexec("([0-9]{1,2}) ([A-Za-z]{3}) ([0-9]{4})", pub_chr))
+  rfc <- vapply(m, function(x) {
+    if (length(x) != 4) return(NA_character_)
+    mi <- match(tolower(x[3]), tolower(month.abb))
+    if (is.na(mi)) return(NA_character_)
+    sprintf("%s-%02d-%02d", x[4], mi, as.integer(x[2]))
+  }, character(1))
+  rfc <- suppressWarnings(as.Date(rfc, format = "%Y-%m-%d"))
+  gov[is.na(gov)] <- rfc[is.na(gov)]
+  gov
+}
+
 get_all_bills <- function(db) {
-  dbGetQuery(db, "
+  bills <- dbGetQuery(db, "
     SELECT b.pid, b.title, b.predkladatel, b.published,
            b.id_tisk, b.session, b.status_id, b.status_name, 
            b.description, b.government_date,
@@ -328,11 +350,12 @@ get_all_bills <- function(db) {
       FROM impacts
       ORDER BY pid, id DESC
     ) i ON b.pid = i.pid
-    ORDER BY 
-      b.government_date IS NOT NULL ASC,
-      b.government_date DESC NULLS FIRST,
-      CAST(b.id_tisk AS INTEGER) DESC NULLS LAST
   ")
+  # Newest first by the bill's own date, then by tisk number; bills without any
+  # known date go last (previously they were listed first).
+  bills$bill_date <- bill_effective_date(bills$government_date, bills$published)
+  tisk <- suppressWarnings(as.integer(bills$id_tisk))
+  bills[order(bills$bill_date, tisk, decreasing = TRUE, na.last = TRUE), , drop = FALSE]
 }
 
 get_bill_costs <- function(db, pid) {
