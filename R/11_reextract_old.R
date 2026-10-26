@@ -118,11 +118,11 @@ extract_for_pid <- function(pid, backend = Sys.getenv("LLM_BACKEND", "gemini")) 
 
   fail <- function(note, status = "failed") list(status = status, note = note)
 
+  clear_veklep_error()
   docs_err <- NULL
   docs <- tryCatch(get_material_documents(pid), error = function(e) { docs_err <<- e$message; NULL })
   if (is.null(docs))
-    return(fail(paste0("VeKLEP JSON nedostupný",
-                       if (!is.null(docs_err)) paste0(": ", docs_err) else " (chyba spojení nebo časový limit)")))
+    return(fail(paste0("VeKLEP JSON nedostupný: ", docs_err %||% last_veklep_error() %||% "neznámá chyba")))
 
   ria_doc <- find_ria_document(docs)
   if (is.null(ria_doc)) return(fail("žádný vhodný dokument", status = "no_document"))
@@ -131,7 +131,7 @@ extract_for_pid <- function(pid, backend = Sys.getenv("LLM_BACKEND", "gemini")) 
   downloaded <- tryCatch(download_document(ria_doc), error = function(e) { dl_err <<- e$message; NULL })
   if (is.null(downloaded))
     return(fail(paste0("stažení dokumentu selhalo: ", ria_doc$name,
-                       if (!is.null(dl_err)) paste0(" (", dl_err, ")") else "")))
+                       " (", dl_err %||% last_veklep_error() %||% "neznámá chyba", ")")))
 
   rd_err <- NULL
   extracted <- tryCatch(extract_document_text(downloaded$path), error = function(e) { rd_err <<- e$message; NULL })
@@ -344,7 +344,7 @@ reextract_main <- function() {
       log_msg("5 failures in a row (Gemini key / quota / network?) — aborting this run.", "ERROR")
       quit(status = 1)
     }
-    Sys.sleep(2)
+    Sys.sleep(5)
   }
 
   remaining <- count_pending(db)
