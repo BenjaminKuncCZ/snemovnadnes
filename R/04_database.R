@@ -375,6 +375,87 @@ get_bill_benefits <- function(db, pid) {
   ", params = list(pid))
 }
 
+# ── Dataset export (Data tab / CSV download) ──────────────────────────────────
+
+# One row per bill: metadata, dates, RIA quality and aggregated costs/benefits.
+get_export_bills <- function(db) {
+  dbGetQuery(db, "
+    SELECT b.pid,
+           b.id_tisk,
+           b.title                         AS nazev,
+           b.predkladatel,
+           b.session                       AS schuze,
+           LEFT(b.government_date, 10)     AS datum_vlada,
+           b.status_name                   AS stav_veklep,
+           b.psp_status                    AS stav_psp,
+           b.komise_verdict                AS komise_ria_verdikt,
+           b.komise_date                   AS komise_ria_datum,
+           b.komise_url                    AS komise_ria_url,
+           i.typ_dokumentu                 AS kvalita_ria,
+           i.ria_provedena,
+           i.shrnutí                       AS shrnuti,
+           COALESCE(c.n, 0)::int                AS pocet_nakladu,
+           COALESCE(c.n_kc, 0)::int             AS pocet_nakladu_vycisleno,
+           c.jednorazove                   AS naklady_jednorazove_kc,
+           c.rocne                         AS naklady_rocne_kc,
+           c.ostatni                       AS naklady_nezname_kc,
+           COALESCE(p.n, 0)::int                AS pocet_prinosu,
+           COALESCE(p.n_kc, 0)::int             AS pocet_prinosu_vycisleno,
+           p.suma                          AS prinosy_kc,
+           b.processed_at                  AS zpracovano
+    FROM bills b
+    LEFT JOIN (
+      SELECT DISTINCT ON (pid) *
+      FROM impacts
+      ORDER BY pid, id DESC
+    ) i ON b.pid = i.pid
+    LEFT JOIN (
+      SELECT pid,
+             COUNT(*)                                   AS n,
+             COUNT(castka)                              AS n_kc,
+             SUM(CASE WHEN periodicita ILIKE 'jednoráz%' THEN castka END)::double precision AS jednorazove,
+             SUM(CASE WHEN periodicita ILIKE 'roč%'      THEN castka END)::double precision AS rocne,
+             SUM(CASE WHEN periodicita IS NULL
+                        OR (periodicita NOT ILIKE 'jednoráz%' AND periodicita NOT ILIKE 'roč%')
+                      THEN castka END)::double precision AS ostatni
+      FROM costs
+      GROUP BY pid
+    ) c ON b.pid = c.pid
+    LEFT JOIN (
+      SELECT pid,
+             COUNT(*)                          AS n,
+             COUNT(castka)                     AS n_kc,
+             SUM(castka)::double precision     AS suma
+      FROM benefits
+      GROUP BY pid
+    ) p ON b.pid = p.pid
+    ORDER BY b.government_date DESC NULLS LAST, b.id_tisk DESC NULLS LAST
+  ")
+}
+
+# One row per cost / benefit item (long format), ready for pivoting by subject.
+get_export_impacts <- function(db) {
+  dbGetQuery(db, "
+    SELECT b.pid, b.id_tisk, b.title AS nazev, b.predkladatel,
+           LEFT(b.government_date, 10) AS datum_vlada,
+           x.typ, x.subjekt, x.castka_kc, x.periodicita, x.jistota,
+           x.monetizovano, x.popis
+    FROM (
+      SELECT pid, 'náklad'::text AS typ, subjekt,
+             castka::double precision AS castka_kc,
+             periodicita, jistota, NULL::text AS monetizovano, popis
+      FROM costs
+      UNION ALL
+      SELECT pid, 'přínos'::text, subjekt,
+             castka::double precision,
+             NULL::text, NULL::text, monetizovano::text, popis
+      FROM benefits
+    ) x
+    JOIN bills b ON b.pid = x.pid
+    ORDER BY b.government_date DESC NULLS LAST, b.pid, x.typ, x.subjekt
+  ")
+}
+
 # ── Migrate SQLite → PostgreSQL ───────────────────────────────────────────────
 
 migrate_to_supabase <- function(sqlite_path = NULL) {

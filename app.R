@@ -17,6 +17,67 @@ message("===================")
 
 APP_URL <- "https://snemovnadnes.cz"
 
+# ── Subject ordering ──────────────────────────────────────────────────────────
+# Costs and benefits are grouped by the type of affected subject, in a fixed
+# order (public finances first, then business, people, environment). Unknown
+# subjects go last; within a subject the largest amounts come first.
+SUBJEKT_ORDER <- c("státní rozpočet", "obce", "podnikatelé", "zaměstnavatelé",
+                   "zaměstnanci", "domácnosti", "spotřebitelé",
+                   "životní prostředí", "jiné")
+
+order_by_subject <- function(df) {
+  if (nrow(df) == 0) return(df)
+  key <- match(tolower(trimws(as.character(df$subjekt))), SUBJEKT_ORDER)
+  key[is.na(key)] <- length(SUBJEKT_ORDER) + 1L
+  amount <- suppressWarnings(as.numeric(df$castka))
+  df[order(key, -dplyr::coalesce(amount, -Inf)), , drop = FALSE]
+}
+
+# ── Data view constants ───────────────────────────────────────────────────────
+
+DATA_PREVIEW_ROWS <- 300
+
+DATA_DICT_BILLS <- list(
+  pid                      = "Identifikátor materiálu ve VeKLEP (odok.cz).",
+  id_tisk                  = "Číslo sněmovního tisku (psp.cz).",
+  nazev                    = "Název návrhu.",
+  predkladatel             = "Zkratka předkladatele (ministerstvo / KML).",
+  schuze                   = "Schůze, na které je materiál projednáván.",
+  datum_vlada              = "Datum schůze vlády (RRRR-MM-DD).",
+  stav_veklep              = "Stav materiálu ve VeKLEP.",
+  stav_psp                 = "Stav projednávání v Poslanecké sněmovně.",
+  komise_ria_verdikt       = "Hodnocení Komise RIA: A (doporučuje) až D (nedoporučuje).",
+  komise_ria_datum         = "Datum stanoviska Komise RIA.",
+  komise_ria_url           = "Odkaz na stanovisko Komise RIA.",
+  kvalita_ria              = "Typ hodnocení dopadů: RIA = závěrečná zpráva, prehled_dopadu = shrnutí dopadů v důvodové zprávě, zadne = nenalezeno.",
+  ria_provedena            = "Zda byla RIA provedena (z extrakce dokumentu).",
+  shrnuti                  = "Shrnutí dopadů vytvořené jazykovým modelem.",
+  pocet_nakladu            = "Počet identifikovaných položek nákladů.",
+  pocet_nakladu_vycisleno  = "Počet nákladů s uvedenou částkou.",
+  naklady_jednorazove_kc   = "Součet jednorázových nákladů v Kč.",
+  naklady_rocne_kc         = "Součet ročních (opakujících se) nákladů v Kč.",
+  naklady_nezname_kc       = "Součet nákladů s jinou / neuvedenou periodicitou v Kč.",
+  pocet_prinosu            = "Počet identifikovaných přínosů.",
+  pocet_prinosu_vycisleno  = "Počet přínosů s uvedenou částkou.",
+  prinosy_kc               = "Součet vyčíslených přínosů v Kč.",
+  zpracovano               = "Kdy byl materiál naposledy zpracován."
+)
+
+DATA_DICT_IMPACTS <- list(
+  pid          = "Identifikátor materiálu ve VeKLEP.",
+  id_tisk      = "Číslo sněmovního tisku.",
+  nazev        = "Název návrhu.",
+  predkladatel = "Zkratka předkladatele.",
+  datum_vlada  = "Datum schůze vlády (RRRR-MM-DD).",
+  typ          = "náklad nebo přínos.",
+  subjekt      = "Dotčený subjekt (státní rozpočet, obce, podnikatelé, domácnosti, …).",
+  castka_kc    = "Částka v Kč; prázdné = nevyčísleno.",
+  periodicita  = "Jednorázově / ročně (jen u nákladů).",
+  jistota      = "Míra jistoty odhadu (jen u nákladů).",
+  monetizovano = "Zda je přínos vyjádřen penězi (jen u přínosů).",
+  popis        = "Popis dopadu."
+)
+
 # ── CSS ───────────────────────────────────────────────────────────────────────
 
 app_css <- "
@@ -828,6 +889,131 @@ body {
   #alert_predkladatele .shiny-options-group { grid-template-columns: 1fr 1fr; }
   #alert_subjekty      .shiny-options-group { grid-template-columns: 1fr 1fr; }
 }
+
+/* ── Header navigation ── */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.nav-btn {
+  padding: 8px 14px;
+  border: 1px solid rgba(255,255,255,0.25);
+  border-bottom: 3px solid transparent;
+  color: var(--paper);
+  background: none;
+  font-size: 1.05rem;
+  font-family: 'Source Sans 3', sans-serif;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.nav-btn:hover { background: rgba(255,255,255,0.1); }
+.nav-btn.active { border-bottom-color: var(--accent); background: rgba(255,255,255,0.08); }
+
+/* ── Data view ── */
+.data-view { display: none; }
+body.view-data .app-body { display: none; }
+body.view-data .data-view {
+  display: block;
+  height: calc(100vh - var(--header-h));
+  overflow-y: auto;
+  padding: 32px 48px 48px;
+}
+.data-view h2 {
+  font-family: 'Playfair Display', serif;
+  font-size: 2rem;
+  font-weight: 900;
+  margin-bottom: 8px;
+}
+.data-view .data-lead {
+  font-size: 1.2rem;
+  line-height: 1.6;
+  color: #3a3a4a;
+  max-width: 820px;
+  margin-bottom: 20px;
+}
+.data-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.data-toolbar label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.data-toolbar select,
+.data-toolbar input[type='text'] {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  font-size: 1.1rem;
+  font-family: 'Source Sans 3', sans-serif;
+  background: white;
+  color: var(--ink);
+  outline: none;
+  min-width: 240px;
+}
+.data-toolbar .btn-download {
+  background: var(--ink);
+  color: var(--paper);
+  border: none;
+  padding: 10px 22px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-family: 'Source Sans 3', sans-serif;
+  text-decoration: none;
+  cursor: pointer;
+}
+.data-toolbar .btn-download:hover { background: #2d2d4a; }
+.data-summary { font-size: 1rem; color: var(--muted); margin-bottom: 10px; }
+.data-table-wrap {
+  overflow: auto;
+  max-height: 60vh;
+  border: 1px solid var(--border);
+  background: white;
+}
+table.data-table { border-collapse: collapse; font-size: 0.95rem; width: max-content; min-width: 100%; }
+table.data-table th {
+  position: sticky;
+  top: 0;
+  background: var(--ink);
+  color: var(--paper);
+  text-align: left;
+  font-weight: 600;
+  padding: 8px 12px;
+  white-space: nowrap;
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.8rem;
+}
+table.data-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+table.data-table td.num { text-align: right; font-family: 'Source Code Pro', monospace; }
+table.data-table tr:hover td { background: var(--paper); }
+.data-dict { margin-top: 24px; max-width: 900px; font-size: 1rem; line-height: 1.6; }
+.data-dict summary { cursor: pointer; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.data-dict dt { font-family: 'Source Code Pro', monospace; font-size: 0.85rem; margin-top: 8px; }
+.data-dict dd { margin-left: 16px; color: #3a3a4a; }
+@media (max-width: 768px) {
+  .header-actions { gap: 4px; }
+  .nav-btn, .bell-btn { padding: 6px 8px; font-size: 0.8rem; }
+  body.view-data .data-view { padding: 20px 16px 40px; }
+  .data-toolbar select, .data-toolbar input[type='text'] { min-width: 0; width: 100%; }
+  .data-toolbar > div { width: 100%; }
+}
 "
 
 # ── Mobile JS ─────────────────────────────────────────────────────────────────
@@ -845,6 +1031,16 @@ function showDetail() {
 
 function showList() {
   document.querySelector('.app-body').classList.remove('detail-open');
+}
+
+function setView(v) {
+  document.body.classList.toggle('view-data', v === 'data');
+  document.querySelectorAll('.nav-btn').forEach(function(b) {
+    b.classList.toggle('active', b.getAttribute('data-view') === v);
+  });
+  if (window.Shiny && Shiny.setInputValue) {
+    Shiny.setInputValue('active_view', v, {priority: 'event'});
+  }
 }
 </script>
 ")
@@ -864,15 +1060,25 @@ ui <- fluidPage(
   div(class = "app-header",
       div(class = "header-left",
           h1("Sněmovna dnes",
-             onclick = "Shiny.setInputValue('go_home', Date.now(), {priority: 'event'})"),
+             onclick = "setView('app'); Shiny.setInputValue('go_home', Date.now(), {priority: 'event'})"),
           div(class = "subtitle",
               "Dopady regulace · Náklady a přínosy · Hodnocení RIA")
       ),
-      tags$button(
-        class   = "bell-btn",
-        title   = "Nastavit e-mailové upozornění",
-        onclick = "Shiny.setInputValue('open_alert_modal', Date.now(), {priority: 'event'})",
-        "\U0001F514 Upozornění"
+      div(class = "header-actions",
+          tags$button(
+            class = "nav-btn active", `data-view` = "app",
+            onclick = "setView('app')", "Přehled"
+          ),
+          tags$button(
+            class = "nav-btn", `data-view` = "data",
+            onclick = "setView('data')", "Data"
+          ),
+          tags$button(
+            class   = "bell-btn",
+            title   = "Nastavit e-mailové upozornění",
+            onclick = "Shiny.setInputValue('open_alert_modal', Date.now(), {priority: 'event'})",
+            "\U0001F514 Upozornění"
+          )
       )
   ),
   
@@ -972,6 +1178,35 @@ ui <- fluidPage(
           
           uiOutput("bill_detail")
       )
+  ),
+  
+  # ── Data view (toggled with the "Data" button in the header) ───────────────
+  div(class = "data-view",
+      h2("Data ke stažení"),
+      div(class = "data-lead",
+          "Celý datový soubor — zákony, relevantní data, vyčíslené dopady a kvalita",
+          "hodnocení RIA — si můžete prohlédnout zde a stáhnout jako CSV pro vlastní",
+          "analýzu (Excel, R, Python). Soubor se stahuje včetně aktuálního filtru."),
+      div(class = "data-toolbar",
+          div(tags$label(`for` = "data_kind", "Datová sada"),
+              tags$select(
+                id       = "data_kind",
+                onchange = "Shiny.setInputValue('data_kind', this.value)",
+                tags$option(value = "bills",   "Zákony (jeden řádek = jeden materiál)"),
+                tags$option(value = "impacts", "Dopady (jeden řádek = jedna položka nákladu / přínosu)")
+              )),
+          div(tags$label(`for` = "data_search", "Hledat"),
+              tags$input(
+                id          = "data_search",
+                type        = "text",
+                placeholder = "název, předkladatel, subjekt …",
+                oninput     = "Shiny.setInputValue('data_search', this.value)"
+              )),
+          div(downloadButton("download_csv", "Stáhnout CSV", class = "btn-download"))
+      ),
+      uiOutput("data_summary"),
+      uiOutput("data_table"),
+      uiOutput("data_dictionary")
   )
 )
 
@@ -1340,6 +1575,100 @@ server <- function(input, output, session) {
     })
   })
   
+  # ── Data view: dataset preview + CSV download ─────────────────────────────
+  
+  data_kind <- reactive({
+    if (identical(input$data_kind, "impacts")) "impacts" else "bills"
+  })
+  
+  # Raw export (cached per kind for the session; data change at most daily)
+  export_raw <- reactive({
+    if (data_kind() == "impacts") get_export_impacts(db) else get_export_bills(db)
+  })
+  
+  # Same text search that the preview uses is applied to the download
+  export_data <- reactive({
+    df     <- export_raw()
+    search <- tolower(trimws(input$data_search %||% ""))
+    if (nzchar(search) && nrow(df) > 0) {
+      hay <- tolower(do.call(paste, c(lapply(df, as.character), sep = " ")))
+      df  <- df[grepl(search, hay, fixed = TRUE), , drop = FALSE]
+    }
+    df
+  })
+  
+  output$data_summary <- renderUI({
+    total <- nrow(export_raw())
+    shown <- nrow(export_data())
+    div(class = "data-summary",
+        if (shown == total) {
+          paste0(total, " záznamů")
+        } else {
+          paste0(shown, " z ", total, " záznamů odpovídá hledání")
+        },
+        if (shown > DATA_PREVIEW_ROWS) {
+          paste0(" · náhled zobrazuje prvních ", DATA_PREVIEW_ROWS,
+                 ", soubor CSV obsahuje všechny")
+        }
+    )
+  })
+  
+  output$data_table <- renderUI({
+    df <- export_data()
+    if (nrow(df) == 0) {
+      return(div(class = "empty-state", p("Žádné záznamy.")))
+    }
+    df <- utils::head(df, DATA_PREVIEW_ROWS)
+    is_num <- vapply(df, is.numeric, logical(1))
+    
+    cell <- function(v, numeric) {
+      if (is.null(v) || length(v) == 0 || is.na(v)) return(tags$td(""))
+      if (numeric) {
+        tags$td(class = "num", format(v, big.mark = " ", scientific = FALSE, trim = TRUE))
+      } else {
+        txt <- as.character(v)
+        tags$td(title = txt, str_trunc(txt, 120))
+      }
+    }
+    
+    div(class = "data-table-wrap",
+        tags$table(class = "data-table",
+                   tags$thead(tags$tr(lapply(names(df), tags$th))),
+                   tags$tbody(lapply(seq_len(nrow(df)), function(i) {
+                     tags$tr(lapply(seq_along(df), function(j) cell(df[[j]][i], is_num[j])))
+                   }))
+        )
+    )
+  })
+  
+  output$data_dictionary <- renderUI({
+    dict <- if (data_kind() == "impacts") DATA_DICT_IMPACTS else DATA_DICT_BILLS
+    tags$details(class = "data-dict",
+                 tags$summary("Popis sloupců"),
+                 tags$dl(unlist(lapply(names(dict), function(n) {
+                   list(tags$dt(n), tags$dd(dict[[n]]))
+                 }), recursive = FALSE))
+    )
+  })
+  
+  output$download_csv <- downloadHandler(
+    filename = function() {
+      paste0("snemovna-dnes-", data_kind(), "-", format(Sys.Date(), "%Y-%m-%d"), ".csv")
+    },
+    content = function(file) {
+      df  <- export_data()
+      old <- options(scipen = 999)
+      on.exit(options(old), add = TRUE)
+      lines <- utils::capture.output(
+        utils::write.csv(df, row.names = FALSE, na = "")
+      )
+      txt <- paste(lines, collapse = "\n")
+      # UTF-8 BOM so Excel opens Czech characters correctly
+      writeBin(c(as.raw(c(0xEF, 0xBB, 0xBF)), charToRaw(enc2utf8(txt)), charToRaw("\n")), file)
+    },
+    contentType = "text/csv"
+  )
+  
   # ── Main detail panel ──────────────────────────────────────────────────────
   output$bill_detail <- renderUI({
     
@@ -1400,8 +1729,8 @@ server <- function(input, output, session) {
     row  <- df[df$pid == pid, ]
     if (nrow(row) == 0) return(NULL)
     
-    costs    <- get_bill_costs(db, pid)
-    benefits <- get_bill_benefits(db, pid)
+    costs    <- order_by_subject(get_bill_costs(db, pid))
+    benefits <- order_by_subject(get_bill_benefits(db, pid))
     
     # ── Status badges ──
     detail_doc_type <- if (!is.na(row$typ_dokumentu)) row$typ_dokumentu else ""
