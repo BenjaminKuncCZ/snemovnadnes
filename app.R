@@ -49,7 +49,7 @@ DATA_DICT_BILLS <- list(
   komise_ria_verdikt       = "Hodnocení Komise RIA: A (doporučuje) až D (nedoporučuje).",
   komise_ria_datum         = "Datum stanoviska Komise RIA.",
   komise_ria_url           = "Odkaz na stanovisko Komise RIA.",
-  kvalita_ria              = "Typ hodnocení dopadů: RIA = závěrečná zpráva, prehled_dopadu = shrnutí dopadů v důvodové zprávě, zadne = nenalezeno.",
+  uroven_hodnoceni         = "Úroveň hodnocení dopadů: RIA = závěrečná zpráva, prehled_dopadu = shrnutí dopadů v důvodové zprávě, zadne = nenalezeno. Kvalitu RIA vyjadřuje komise_ria_verdikt.",
   ria_provedena            = "Zda byla RIA provedena (z extrakce dokumentu).",
   shrnuti                  = "Shrnutí dopadů vytvořené jazykovým modelem.",
   pocet_nakladu            = "Počet identifikovaných položek nákladů.",

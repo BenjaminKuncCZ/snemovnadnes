@@ -391,7 +391,7 @@ get_export_bills <- function(db) {
            b.komise_verdict                AS komise_ria_verdikt,
            b.komise_date                   AS komise_ria_datum,
            b.komise_url                    AS komise_ria_url,
-           i.typ_dokumentu                 AS kvalita_ria,
+           i.typ_dokumentu                 AS uroven_hodnoceni,
            i.ria_provedena,
            i.shrnutí                       AS shrnuti,
            COALESCE(c.n, 0)::int                AS pocet_nakladu,
