@@ -182,7 +182,12 @@ send_email_resend <- function(to, subject, html_body) {
       req_perform()
     TRUE
   }, error = function(e) {
-    message("Email send failed to ", to, ": ", e$message)
+    detail <- tryCatch(
+      httr2::resp_body_string(e$resp),
+      error = function(e2) ""
+    )
+    message("Email send failed to ", to, ": ", conditionMessage(e),
+            if (nzchar(detail)) paste0(" | Resend response: ", detail) else "")
     FALSE
   })
   invisible(ok)
