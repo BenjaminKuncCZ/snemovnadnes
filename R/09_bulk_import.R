@@ -125,10 +125,11 @@ for (i in seq_len(nrow(tisky_2026))) {
   message("\n[", i, "/", nrow(tisky_2026), "] Tisk ", id_tisk, " — ",
           str_trunc(title, 60))
   
-  pid <- tryCatch(
+  veklep <- tryCatch(
     get_veklep_pid_for_tisk(id_tisk),
     error = function(e) NULL
   )
+  pid <- if (is.null(veklep)) NULL else veklep$pid
   
   if (is.null(pid)) {
     message("  No VeKLEP PID found — skipping")
