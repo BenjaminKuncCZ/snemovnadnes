@@ -8,7 +8,7 @@ on:
 
 jobs:
   run-pipeline:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # pinned: libtiff5-dev / libxml2 ABI must match cached R libs
     timeout-minutes: 90  # Gemini + PDF downloads can be slow
 
     env:
@@ -58,6 +58,7 @@ jobs:
             libpoppler-cpp-dev \
             libcurl4-openssl-dev \
             libssl-dev \
+            libxml2 \
             libxml2-dev \
             libfontconfig1-dev \
             libfreetype6-dev \
@@ -76,9 +77,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.R_LIBS_USER }}
-          key: ${{ runner.os }}-r-4.3.2-${{ hashFiles('renv.lock') }}
+          key: ${{ runner.os }}-r-4.3.2-v2-${{ hashFiles('renv.lock') }}
           restore-keys: |
-            ${{ runner.os }}-r-4.3.2-
+            ${{ runner.os }}-r-4.3.2-v2-
 
       # ── Install only the packages the pipeline actually needs ─────────────────
       # We skip shiny / plotly / rsconnect — those are only needed for the app.

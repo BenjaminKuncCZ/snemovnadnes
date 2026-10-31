@@ -216,67 +216,44 @@ get_veklep_pid_for_tisk <- function(id_tisk) {
   pid <- str_extract(text, "[A-Z]{5}[A-Z0-9]{7,}")
   if (is.na(pid)) return(NULL)
   
-  # PSP status — try terminal states first, then intermediate
-  psp_status <- tryCatch({
-    
+  # PSP status — patterns ordered: terminal states first, then intermediate
+  status_patterns <- c(
     # Published in Sbírka zákonů
-    m <- str_extract(text,
-                     "Zákon vyhlášen \\d+\\.\\s*\\d+\\.\\s*\\d{4}.{0,80}pod číslem .{3,40}Sb\\.")
-    if (!is.na(m)) return(list(pid = pid, psp_status = str_trim(m)))
-    
+    "Zákon vyhlášen \\d+\\.\\s*\\d+\\.\\s*\\d{4}.{0,80}pod číslem .{3,40}Sb\\.",
     # Sent for publication
-    m <- str_extract(text, "Schválený zákon odeslán k publikaci.{0,80}\\.")
-    if (!is.na(m)) return(list(pid = pid, psp_status = str_trim(m)))
-    
+    "Schválený zákon odeslán k publikaci.{0,80}\\.",
     # Senate rejected
-    m <- str_extract(text, "Senát návrh zamítl.{0,80}\\.")
-    if (!is.na(m)) return(list(pid = pid, psp_status = str_trim(m)))
-    
+    "Senát návrh zamítl.{0,80}\\.",
     # Senate returned with amendments
-    m <- str_extract(text, "Senát návrh vrátil sněmovně.{0,80}\\.")
-    if (!is.na(m)) return(list(pid = pid, psp_status = str_trim(m)))
-    
+    "Senát návrh vrátil sněmovně.{0,80}\\.",
     # Senate approved
-    m <- str_extract(text, "Senát.{0,20}(?:schválil|souhlasí).{0,80}\\.")
-    if (!is.na(m)) return(list(pid = pid, psp_status = str_trim(m)))
-    
-    # Sent to Senate — waiting for Senate (do = deadline)
-    m <- str_extract(text,
-                     "Zákon doručen Senátu.{0,60}Další projednávání možné do \\d+\\.\\s*\\d+\\.\\s*\\d{4}")
-    if (!is.na(m)) return(list(pid = pid, psp_status = str_trim(m)))
-    
+    "Senát.{0,20}(?:schválil|souhlasí).{0,80}\\.",
+    # Sent to Senate — waiting for Senate
+    "Zákon doručen Senátu.{0,60}Další projednávání možné do \\d+\\.\\s*\\d+\\.\\s*\\d{4}",
     # Passed to Senate by PS (without deadline line)
-    m <- str_extract(text,
-                     "Poslanecká sněmovna postoupila.{0,40}návrh zákona Senátu.{0,60}\\.")
-    if (!is.na(m)) return(list(pid = pid, psp_status = str_trim(m)))
-    
+    "Poslanecká sněmovna postoupila.{0,40}návrh zákona Senátu.{0,60}\\.",
     # President signed
-    m <- str_extract(text, "Prezident.{0,20}podepsal.{0,80}\\.")
-    if (!is.na(m)) return(list(pid = pid, psp_status = str_trim(m)))
-    
+    "Prezident.{0,20}podepsal.{0,80}\\.",
     # Passed by PS (3rd reading)
-    m <- str_extract(text, "Návrh zákona schválen.{0,80}\\.")
-    if (!is.na(m)) return(list(pid = pid, psp_status = str_trim(m)))
-    
-    # Non-law reports approved (zpráva schválena)
-    m <- str_extract(text, "Zpráva schválena.{0,80}\\.")
-    if (!is.na(m)) return(list(pid = pid, psp_status = str_trim(m)))
-    
+    "Návrh zákona schválen.{0,80}\\.",
+    # Non-law reports approved
+    "Zpráva schválena.{0,80}\\.",
     # Budget/report rejected or returned
-    m <- str_extract(text,
-                     "(?:Návrh státního rozpočtu vrácen|návrh zákona zamítnut|vzat zpět navrhovatelem).{0,80}\\.")
-    if (!is.na(m)) return(list(pid = pid, psp_status = str_trim(m)))
-    
+    "(?:Návrh státního rozpočtu vrácen|návrh zákona zamítnut|vzat zpět navrhovatelem).{0,80}\\.",
     # Waiting for next reading — full date DD. M. YYYY
-    m <- str_extract(text,
-                     "Další projednávání možné od \\d+\\.\\s*\\d+\\.\\s*\\d{4}\\.?")
-    if (!is.na(m)) return(list(pid = pid, psp_status = str_trim(m)))
-    
-    list(pid = pid, psp_status = NA_character_)
-    
-  }, error = function(e) list(pid = pid, psp_status = NA_character_))
+    "Další projednávání možné od \\d+\\.\\s*\\d+\\.\\s*\\d{4}\\.?"
+  )
   
-  psp_status
+  psp_status <- NA_character_
+  for (pat in status_patterns) {
+    m <- tryCatch(str_extract(text, pat), error = function(e) NA_character_)
+    if (!is.na(m)) {
+      psp_status <- str_trim(m)
+      break
+    }
+  }
+  
+  list(pid = pid, psp_status = psp_status)
 }
 
 # Match all bills by fetching PID from PSP directly
