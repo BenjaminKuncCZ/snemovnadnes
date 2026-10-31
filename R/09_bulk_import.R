@@ -125,16 +125,18 @@ for (i in seq_len(nrow(tisky_2026))) {
   message("\n[", i, "/", nrow(tisky_2026), "] Tisk ", id_tisk, " — ",
           str_trunc(title, 60))
   
-  pid <- tryCatch(
+  res <- tryCatch(
     get_veklep_pid_for_tisk(id_tisk),
     error = function(e) NULL
   )
   
-  if (is.null(pid)) {
+  if (is.null(res)) {
     message("  No VeKLEP PID found — skipping")
     Sys.sleep(0.5)
     next
   }
+  
+  pid <- res$pid
   
   if (pid %in% already_done) {
     message("  Already processed: ", pid)
