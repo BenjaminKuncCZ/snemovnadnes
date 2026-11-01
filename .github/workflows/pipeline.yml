@@ -67,6 +67,7 @@ jobs:
             libpng-dev \
             libtiff5-dev \
             libjpeg-dev \
+            libwebp-dev \
             antiword
 
       # ── R package cache ───────────────────────────────────────────────────────
@@ -84,9 +85,21 @@ jobs:
       # ── Install only the packages the pipeline actually needs ─────────────────
       # We skip shiny / plotly / rsconnect — those are only needed for the app.
       # `try()` around each so a single already-installed package doesn't abort.
+      # Uses Posit Package Manager *binaries* for Ubuntu 22.04 (jammy) so a cold
+      # cache no longer means compiling ragg/RPostgres/etc. from source (slow, and
+      # fragile when a -dev library is missing). The HTTPUserAgent option is what
+      # makes PPM serve binaries instead of source tarballs.
+      # install.packages() only warns on failure, so we verify afterwards and
+      # fail the step here with a clear message instead of a confusing
+      # "there is no package called ..." later in the pipeline.
       - name: Install R packages
         run: |
           Rscript -e '
+            options(HTTPUserAgent = sprintf(
+              "R/%s R (%s)", getRversion(),
+              paste(getRversion(), R.version$platform, R.version$arch, R.version$os)
+            ))
+            repos <- c(CRAN = "https://packagemanager.posit.co/cran/__linux__/jammy/latest")
             pkgs <- c(
               "httr2", "rvest", "xml2", "pdftools", "stringr", "dplyr",
               "DBI", "RPostgres", "jsonlite", "officer", "uuid",
@@ -94,11 +107,11 @@ jobs:
             )
             missing <- pkgs[!pkgs %in% rownames(installed.packages())]
             if (length(missing) > 0) {
-              install.packages(
-                missing,
-                repos = "https://packagemanager.posit.co/cran/latest",
-                Ncpus = 2
-              )
+              install.packages(missing, repos = repos, Ncpus = 2)
+            }
+            still_missing <- pkgs[!pkgs %in% rownames(installed.packages())]
+            if (length(still_missing) > 0) {
+              stop("Failed to install R packages: ", paste(still_missing, collapse = ", "))
             }
           '
 
