@@ -1007,6 +1007,8 @@ table.data-table tr:hover td { background: var(--paper); }
 .data-dict summary { cursor: pointer; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
 .data-dict dt { font-family: 'Source Code Pro', monospace; font-size: 0.85rem; margin-top: 8px; }
 .data-dict dd { margin-left: 16px; color: #3a3a4a; }
+.data-license { margin-top: 24px; max-width: 900px; padding: 12px 16px; border-left: 3px solid var(--muted); background: var(--paper); font-size: 0.9rem; line-height: 1.6; color: #3a3a4a; }
+.data-license a { color: inherit; text-decoration: underline; }
 @media (max-width: 768px) {
   .header-actions { gap: 4px; }
   .nav-btn, .bell-btn { padding: 6px 8px; font-size: 0.8rem; }
@@ -1206,7 +1208,20 @@ ui <- fluidPage(
       ),
       uiOutput("data_summary"),
       uiOutput("data_table"),
-      uiOutput("data_dictionary")
+      uiOutput("data_dictionary"),
+      div(class = "data-license",
+          tags$strong("Licence dat: "),
+          tags$a(href = "https://creativecommons.org/licenses/by/4.0/deed.cs",
+                 target = "_blank", rel = "noopener license",
+                 "Creative Commons Uveďte původ 4.0 (CC BY 4.0)"),
+          ". Data můžete volně sdílet i upravovat, včetně komerčního využití, pokud",
+          " uvedete autora a zdroj, např.: ",
+          tags$em("© 2026 Benjamin Kunc, Sněmovna dnes (snemovnadnes.cz), CC BY 4.0."),
+          tags$br(),
+          "Licence se vztahuje na zpracovaný datový soubor a extrahované údaje.",
+          " Původní dokumenty (VeKLEP, psp.cz, ria.vlada.cz) zůstávají pod podmínkami",
+          " svých zdrojů. Extrakce pomocí AI může obsahovat chyby."
+      )
   )
 )
 

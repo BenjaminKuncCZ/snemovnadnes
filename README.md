@@ -148,4 +148,12 @@ ADMIN_EMAIL=your@email.com
 
 ## Licence
 
-MIT
+- **Zdrojový kód:** MIT
+- **Data** (zpracovaný datový soubor, extrahované náklady a přínosy, veřejné API a CSV exporty): [Creative Commons Uveďte původ 4.0 (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/deed.cs)
+
+Data můžete sdílet i upravovat, včetně komerčního využití, pokud uvedete autora a zdroj, např.:
+
+> © 2026 Benjamin Kunc, Sněmovna dnes (snemovnadnes.cz), CC BY 4.0
+
+Licence dat se nevztahuje na původní dokumenty z VeKLEP, psp.cz a ria.vlada.cz, které zůstávají pod podmínkami svých zdrojů. Údaje extrahované jazykovým modelem mohou obsahovat chyby — vždy je ověřte v původním dokumentu.
+
