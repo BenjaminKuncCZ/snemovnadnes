@@ -327,7 +327,8 @@ run_pipeline <- function(backend = "gemini") {
       predkladatel = "",
       published    = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ"),
       id_tisk      = matched$id_tisk[i],
-      session      = matched$session[i]
+      session      = matched$session[i],
+      psp_status   = if (is.na(matched$psp_status[i])) "" else matched$psp_status[i]
     )
     
     log_msg(paste0("[", i, "/", nrow(matched), "] ",
@@ -414,6 +415,32 @@ refresh_all_metadata <- function(db) {
   log_msg("Metadata refresh complete")
 }
 
+# ── 4c. Self-healing PSP status ──────────────────────────────────────────────
+# Fills in / repairs psp_status for bills outside the scanned session window
+# (empty, or truncated by the old regexes, e.g. "Další projednávání možné od 23.").
+# Limited per run so a large backlog is worked off over a few days.
+
+refresh_psp_status <- function(db, max_n = 60) {
+  todo <- dbGetQuery(db, "
+    SELECT pid, id_tisk FROM bills
+    WHERE id_tisk IS NOT NULL
+      AND (psp_status IS NULL OR psp_status = ''
+           OR psp_status ~ '(od|do) \\d+\\.( \\d+\\.)?$'
+           OR psp_status ~ 'Sbírce zákonů \\d+\\.$')
+    ORDER BY pid
+    LIMIT $1", params = list(as.integer(max_n)))
+  log_msg(paste("PSP status refresh:", nrow(todo), "bills"))
+  for (i in seq_len(nrow(todo))) {
+    res <- tryCatch(get_veklep_pid_for_tisk(todo$id_tisk[i]), error = function(e) NULL)
+    if (!is.null(res) && !is.na(res$psp_status) && res$psp_status != "") {
+      dbExecute(db, "UPDATE bills SET psp_status = $1 WHERE pid = $2",
+                params = list(res$psp_status, todo$pid[i]))
+    }
+    Sys.sleep(0.3)
+  }
+  invisible(nrow(todo))
+}
+
 # ── Run ───────────────────────────────────────────────────────────────────────
 
 # Initialize so the heartbeat section always has a value, even if the
@@ -433,6 +460,12 @@ if (!interactive() || Sys.getenv("RUN_PIPELINE") == "1") {
   attempted_pids <- attr(pipeline_counts, "attempted")
   if (is.null(attempted_pids)) attempted_pids <- character()
   run_retry_step(exclude = attempted_pids)
+
+  tryCatch({
+    db_psp <- get_db()
+    refresh_psp_status(db_psp)
+    dbDisconnect(db_psp)
+  }, error = function(e) log_msg(paste("PSP status refresh error:", e$message), "WARN"))
 
   tryCatch({
     db_komise <- get_db()
