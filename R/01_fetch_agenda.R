@@ -210,7 +210,13 @@ get_veklep_pid_for_tisk <- function(id_tisk) {
   
   if (is.null(page)) return(NULL)
   
-  text <- html_text(page)
+  # Collapse whitespace incl. non-breaking spaces so dates like "23.\u00a012.\u00a02025" match
+  text <- str_replace_all(html_text(page), "[\\s\\u00a0]+", " ")
+  
+  # Rest of a sentence, up to its final period. A period between digits
+  # (inside a date such as "23. 12. 2025") does not end the sentence.
+  # NB: the last date period is the sentence end, so "…od 23. 12. 2025." is kept whole.
+  rest <- "(?:[^.]|(?<=\\d)\\.(?=\\s?\\d)){0,120}\\."
   
   # PID
   pid <- str_extract(text, "[A-Z]{5}[A-Z0-9]{7,}")
@@ -219,29 +225,20 @@ get_veklep_pid_for_tisk <- function(id_tisk) {
   # PSP status — patterns ordered: terminal states first, then intermediate
   status_patterns <- c(
     # Published in Sbírka zákonů
-    "Zákon vyhlášen \\d+\\.\\s*\\d+\\.\\s*\\d{4}.{0,80}pod číslem .{3,40}Sb\\.",
-    # Sent for publication
-    "Schválený zákon odeslán k publikaci.{0,80}\\.",
-    # Senate rejected
-    "Senát návrh zamítl.{0,80}\\.",
-    # Senate returned with amendments
-    "Senát návrh vrátil sněmovně.{0,80}\\.",
-    # Senate approved
-    "Senát.{0,20}(?:schválil|souhlasí).{0,80}\\.",
-    # Sent to Senate — waiting for Senate
-    "Zákon doručen Senátu.{0,60}Další projednávání možné do \\d+\\.\\s*\\d+\\.\\s*\\d{4}",
-    # Passed to Senate by PS (without deadline line)
-    "Poslanecká sněmovna postoupila.{0,40}návrh zákona Senátu.{0,60}\\.",
-    # President signed
-    "Prezident.{0,20}podepsal.{0,80}\\.",
-    # Passed by PS (3rd reading)
-    "Návrh zákona schválen.{0,80}\\.",
-    # Non-law reports approved
-    "Zpráva schválena.{0,80}\\.",
-    # Budget/report rejected or returned
-    "(?:Návrh státního rozpočtu vrácen|návrh zákona zamítnut|vzat zpět navrhovatelem).{0,80}\\.",
+    "Zákon vyhlášen \\d+\\. ?\\d+\\. ?\\d{4}.{0,80}pod číslem .{3,40}Sb\\.",
+    paste0("Schválený zákon odeslán k publikaci", rest),
+    paste0("Senát návrh zamítl", rest),
+    paste0("Senát návrh vrátil sněmovně", rest),
+    paste0("Senát.{0,20}(?:schválil|souhlasí)", rest),
+    # Sent to Senate — waiting for Senate (full deadline date)
+    "Zákon doručen Senátu.{0,60}Další projednávání možné do \\d+\\. ?\\d+\\. ?\\d{4}\\.?",
+    paste0("Poslanecká sněmovna postoupila.{0,40}návrh zákona Senátu", rest),
+    paste0("Prezident.{0,20}podepsal", rest),
+    paste0("Návrh zákona schválen", rest),
+    paste0("Zpráva schválena", rest),
+    paste0("(?:Návrh státního rozpočtu vrácen|návrh zákona zamítnut|vzat zpět navrhovatelem)", rest),
     # Waiting for next reading — full date DD. M. YYYY
-    "Další projednávání možné od \\d+\\.\\s*\\d+\\.\\s*\\d{4}\\.?"
+    "Další projednávání možné od \\d+\\. ?\\d+\\. ?\\d{4}\\.?"
   )
   
   psp_status <- NA_character_
