@@ -7,6 +7,7 @@ on:
       - "app.R"
       - "R/04_database.R"
       - "R/10_alerts.R"
+      - "R/12_stats.R"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
@@ -51,8 +52,8 @@ jobs:
       # so every package the bundled files use must be installed here first.
       - name: Install app packages
         run: |
-          Rscript -e 'install.packages(c("rsconnect", "shiny", "plotly", "DBI", "dplyr", "stringr", "jsonlite", "httr2", "RPostgres", "RSQLite", "rprojroot", "uuid", "dbplyr"))'
-          Rscript -e 'stopifnot(all(c("shiny","plotly","DBI","dplyr","stringr","jsonlite","httr2","RPostgres","RSQLite","rprojroot","uuid","rsconnect") %in% rownames(installed.packages())))'
+          Rscript -e 'install.packages(c("rsconnect", "shiny", "plotly", "DBI", "dplyr", "stringr", "jsonlite", "httr2", "RPostgres", "RSQLite", "rprojroot", "uuid", "dbplyr", "tidyr"))'
+          Rscript -e 'stopifnot(all(c("shiny","plotly","DBI","dplyr","stringr","jsonlite","httr2","RPostgres","RSQLite","rprojroot","uuid","rsconnect","tidyr") %in% rownames(installed.packages())))'
 
       - name: Deploy to shinyapps.io
         env:
@@ -71,7 +72,7 @@ jobs:
               account  = "dopady",
               server   = "shinyapps.io",
               appFiles = c("app.R", "secrets.R",
-                           "R/04_database.R", "R/10_alerts.R"),
+                           "R/04_database.R", "R/10_alerts.R", "R/12_stats.R"),
               forceUpdate    = TRUE,
               launch.browser = FALSE
             )

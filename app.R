@@ -8,6 +8,7 @@ library(stringr)
 
 source("R/04_database.R")
 source("R/10_alerts.R")
+source("R/12_stats.R")
 
 # Startup check — visible in shinyapps.io logs
 message("=== App starting ===")
@@ -1037,6 +1038,7 @@ function showList() {
 
 function setView(v) {
   document.body.classList.toggle('view-data', v === 'data');
+  document.body.classList.toggle('view-stats', v === 'stats');
   document.querySelectorAll('.nav-btn').forEach(function(b) {
     b.classList.toggle('active', b.getAttribute('data-view') === v);
   });
@@ -1053,6 +1055,7 @@ ui <- fluidPage(
   
   tags$head(
     tags$style(HTML(app_css)),
+    tags$style(HTML(STATS_CSS)),
     tags$title("Sněmovna dnes"),
     tags$meta(name = "viewport", content = "width=device-width, initial-scale=1"),
     mobile_js
@@ -1074,6 +1077,10 @@ ui <- fluidPage(
           tags$button(
             class = "nav-btn", `data-view` = "data",
             onclick = "setView('data')", "Data"
+          ),
+          tags$button(
+            class = "nav-btn", `data-view` = "stats",
+            onclick = "setView('stats')", "Statistiky"
           ),
           tags$button(
             class   = "bell-btn",
@@ -1182,6 +1189,9 @@ ui <- fluidPage(
       )
   ),
   
+  # ── Statistiky view (toggled with the "Statistiky" button in the header) ──
+  stats_ui(),
+
   # ── Data view (toggled with the "Data" button in the header) ───────────────
   div(class = "data-view",
       h2("Data ke stažení"),
@@ -1237,6 +1247,8 @@ server <- function(input, output, session) {
   bills <- reactive({
     get_all_bills(db)
   })
+
+  stats_server(input, output, db, bills)
   
   selected_pid <- reactiveVal(NULL)
   
