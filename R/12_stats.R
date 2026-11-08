@@ -156,7 +156,7 @@ stat_card <- function(title, subtitle = NULL, output) {
 }
 
 stats_ui <- function() {
-  div(class = "stats-view", style = "display:none;",
+  div(class = "stats-view",
       div(class = "stats-inner",
           div(class = "intro-eyebrow", style = "font-size:1.1rem;", "Přehled dat"),
           h2(class = "stats-h2", "Statistiky datasetu"),
