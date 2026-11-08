@@ -23,7 +23,8 @@ app_files <- c(
   "app.R",
   "secrets.R",
   "R/04_database.R",
-  "R/10_alerts.R"
+  "R/10_alerts.R",
+  "R/12_stats.R"
 )
 # ── Step 3: Verify all files exist before deploying ───────────────────────────
 missing <- app_files[!file.exists(app_files)]
