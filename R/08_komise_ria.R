@@ -123,7 +123,8 @@ node_title <- function(node) {
   }
   if (is.na(title)) return(NA_character_)
   title <- str_squish(title)
-  if (nchar(title) <= 30) return(NA_character_)
+  # >= 20 chars keeps short titles such as "Návrh zákona o účetnictví" (25)
+  if (nchar(title) < 20) return(NA_character_)
   if (str_detect(tolower(title),
                  "hodnocení dopadů|úřad vlády|oddělení ria|jednání komise ria|pracovní komise")) {
     return(NA_character_)
@@ -242,7 +243,7 @@ classify_verdict <- function(text) {
   if (str_detect(t, "nedoporuč|neschválit|neschválení"))              return("D")
   if (str_detect(t, "přepracov"))                                      return("C")
   if (str_detect(t, "zapracov|zohledn|dopracov|za předpokladu"))       return("B")
-  if (str_detect(t, "doporu[čc]\\w*.{0,200}schvál"))                   return("A")
+  if (str_detect(t, "doporu[čc]\\w*.{0,200}schvál|doporu[čc]\\w* vládě")) return("A")
 
   NA_character_
 }
