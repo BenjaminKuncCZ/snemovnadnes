@@ -350,10 +350,10 @@ body.view-stats .stats-view {
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .stat-card  { background: white; border: 1px solid var(--border); padding: 18px 20px 8px; }
 .stat-card-title {
-  font-size: 1.15rem; font-weight: 600; text-transform: uppercase;
+  font-size: 1.4rem; font-weight: 600; text-transform: uppercase;
   letter-spacing: 1.5px; color: var(--ink);
 }
-.stat-card-sub { font-size: 1.05rem; color: var(--muted); margin: 4px 0 8px; }
+.stat-card-sub { font-size: 1.25rem; color: var(--muted); margin: 4px 0 8px; }
 .stats-note {
   font-size: 0.8rem; color: var(--muted); line-height: 1.6; margin-top: 24px;
   border-top: 1px solid var(--border); padding-top: 14px; max-width: 760px;
