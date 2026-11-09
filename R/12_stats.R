@@ -333,7 +333,7 @@ body.view-stats .stats-view {
 .stats-inner { max-width: 1180px; margin: 0 auto; padding: 32px 32px 64px; }
 .stats-h2 {
   font-family: 'Playfair Display', serif; font-weight: 900;
-  font-size: 1.8rem; margin: 4px 0 20px;
+  font-size: 2.4rem; margin: 4px 0 24px;
 }
 .kpi-row {
   display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 28px;
@@ -350,10 +350,10 @@ body.view-stats .stats-view {
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .stat-card  { background: white; border: 1px solid var(--border); padding: 18px 20px 8px; }
 .stat-card-title {
-  font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
+  font-size: 1.15rem; font-weight: 600; text-transform: uppercase;
   letter-spacing: 1.5px; color: var(--ink);
 }
-.stat-card-sub { font-size: 0.85rem; color: var(--muted); margin: 4px 0 8px; }
+.stat-card-sub { font-size: 1.05rem; color: var(--muted); margin: 4px 0 8px; }
 .stats-note {
   font-size: 0.8rem; color: var(--muted); line-height: 1.6; margin-top: 24px;
   border-top: 1px solid var(--border); padding-top: 14px; max-width: 760px;
@@ -362,6 +362,6 @@ body.view-stats .stats-view {
   .kpi-row { grid-template-columns: 1fr 1fr; }
   .stats-grid { grid-template-columns: 1fr; }
   .stats-inner { padding: 20px 16px 48px; }
-  .stats-h2 { font-size: 1.5rem; }
+  .stats-h2 { font-size: 1.8rem; }
 }
 )"
