@@ -108,7 +108,7 @@ st_layout <- function(p, ...) {
     layout(
       paper_bgcolor = "rgba(0,0,0,0)",
       plot_bgcolor  = "rgba(0,0,0,0)",
-      font   = list(family = "Source Sans 3, sans-serif", color = ST_INK, size = 14),
+      font   = list(family = "Source Sans 3, sans-serif", color = ST_INK, size = 12),
       margin = list(l = 10, r = 30, t = 10, b = 10),
       showlegend = FALSE,
       ...
@@ -122,7 +122,7 @@ st_empty <- function(msg = "Zatím nejsou k dispozici žádná data.") {
       paper_bgcolor = "rgba(0,0,0,0)", plot_bgcolor = "rgba(0,0,0,0)",
       xaxis = list(visible = FALSE), yaxis = list(visible = FALSE),
       annotations = list(list(text = msg, showarrow = FALSE,
-                              font = list(color = ST_MUTED, size = 15)))
+                              font = list(color = ST_MUTED, size = 13)))
     ) |>
     config(displayModeBar = FALSE)
 }
@@ -141,30 +141,31 @@ st_hbar <- function(labels, values, color = ST_INK) {
   ) |>
     st_layout(
       xaxis = list(visible = FALSE),
-      yaxis = list(title = "", automargin = TRUE, tickfont = list(size = 14))
+      yaxis = list(title = "", automargin = TRUE, tickfont = list(size = 12),
+                   tickmode = "linear", dtick = 1)
     )
 }
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 
-stat_card <- function(title, subtitle = NULL, output) {
+stat_card <- function(title, subtitle = NULL, output, height = "300px") {
   div(class = "stat-card",
       div(class = "stat-card-title", title),
       if (!is.null(subtitle)) div(class = "stat-card-sub", subtitle),
-      plotlyOutput(output, height = "320px")
+      plotlyOutput(output, height = height)
   )
 }
 
 stats_ui <- function() {
   div(class = "stats-view",
       div(class = "stats-inner",
-          div(class = "intro-eyebrow", style = "font-size:1.1rem;", "Přehled dat"),
+          div(class = "intro-eyebrow", style = "font-size:0.9rem;", "Přehled dat"),
           h2(class = "stats-h2", "Statistiky datasetu"),
           uiOutput("st_kpis"),
 
           div(class = "stats-grid",
               stat_card("Kdo materiály předkládá",
-                        "Počet materiálů podle předkladatele", "st_resorts"),
+                        "Počet materiálů podle předkladatele", "st_resorts", height = "520px"),
               stat_card("Jak často je provedena RIA",
                         "Typ hodnocení dopadů u všech materiálů", "st_doctypes"),
               stat_card("Kdo nese náklady a kdo má přínosy",
@@ -172,7 +173,7 @@ stats_ui <- function() {
                         "st_subjects"),
               stat_card("Hodnocení dopadů podle předkladatele",
                         "Podíl materiálů s RIA, přehledem dopadů a bez hodnocení",
-                        "st_resort_docs"),
+                        "st_resort_docs", height = "520px"),
               stat_card("Komise RIA: pokrytí",
                         "Kolik materiálů se ZZ RIA Komise již posoudila", "st_komise_cov"),
               stat_card("Komise RIA: známky",
@@ -237,7 +238,7 @@ stats_server <- function(input, output, db, bills) {
             textinfo = "value", sort = FALSE,
             hovertemplate = "%{label}: %{value} (%{percent})<extra></extra>") |>
       st_layout(showlegend = TRUE,
-                legend = list(orientation = "h", y = -0.05, font = list(size = 13)))
+                legend = list(orientation = "h", y = -0.05, font = list(size = 11)))
   })
 
   output$st_subjects <- renderPlotly({
@@ -256,7 +257,8 @@ stats_server <- function(input, output, db, bills) {
                 legend = list(orientation = "h", y = 1.08, x = 0),
                 xaxis = list(title = "", showgrid = TRUE, gridcolor = "#e6e0d4",
                              zeroline = FALSE),
-                yaxis = list(title = "", automargin = TRUE))
+                yaxis = list(title = "", automargin = TRUE, tickfont = list(size = 12),
+                             tickmode = "linear", dtick = 1))
   })
 
   output$st_resort_docs <- renderPlotly({
@@ -281,7 +283,8 @@ stats_server <- function(input, output, db, bills) {
                 legend = list(orientation = "h", y = 1.08, x = 0),
                 xaxis = list(title = "", showgrid = TRUE, gridcolor = "#e6e0d4",
                              zeroline = FALSE),
-                yaxis = list(title = "", automargin = TRUE))
+                yaxis = list(title = "", automargin = TRUE, tickfont = list(size = 12),
+                             tickmode = "linear", dtick = 1))
   })
 
   output$st_komise_cov <- renderPlotly({
@@ -295,7 +298,8 @@ stats_server <- function(input, output, db, bills) {
             text = values, textposition = "outside", cliponaxis = FALSE,
             hovertemplate = "%{y}: %{x}<extra></extra>") |>
       st_layout(xaxis = list(visible = FALSE),
-                yaxis = list(title = "", automargin = TRUE))
+                yaxis = list(title = "", automargin = TRUE, tickfont = list(size = 12),
+                             tickmode = "linear", dtick = 1))
   })
 
   output$st_verdicts <- renderPlotly({
@@ -307,7 +311,7 @@ stats_server <- function(input, output, db, bills) {
             marker = list(color = c(ST_GREEN, ST_YELLOW, ST_ORANGE, ST_RED)),
             text = unname(n), textposition = "outside", cliponaxis = FALSE,
             hovertemplate = "Známka %{x}: %{y}<extra></extra>") |>
-      st_layout(xaxis = list(title = "", tickfont = list(size = 18)),
+      st_layout(xaxis = list(title = "", tickfont = list(size = 14)),
                 yaxis = list(visible = FALSE))
   })
 
@@ -329,7 +333,7 @@ body.view-stats .stats-view {
 .stats-inner { max-width: 1180px; margin: 0 auto; padding: 32px 32px 64px; }
 .stats-h2 {
   font-family: 'Playfair Display', serif; font-weight: 900;
-  font-size: 2.4rem; margin: 4px 0 24px;
+  font-size: 1.8rem; margin: 4px 0 20px;
 }
 .kpi-row {
   display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin-bottom: 28px;
@@ -339,25 +343,25 @@ body.view-stats .stats-view {
   padding: 16px 18px;
 }
 .kpi-value {
-  font-family: 'Playfair Display', serif; font-size: 2.4rem; font-weight: 900; line-height: 1;
+  font-family: 'Playfair Display', serif; font-size: 1.8rem; font-weight: 900; line-height: 1;
 }
-.kpi-label { font-size: 1rem; color: var(--muted); margin-top: 8px; line-height: 1.3; }
-.kpi-sub   { font-size: 0.95rem; font-weight: 600; color: var(--accent); margin-top: 4px; }
+.kpi-label { font-size: 0.85rem; color: var(--muted); margin-top: 8px; line-height: 1.3; }
+.kpi-sub   { font-size: 0.85rem; font-weight: 600; color: var(--accent); margin-top: 4px; }
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .stat-card  { background: white; border: 1px solid var(--border); padding: 18px 20px 8px; }
 .stat-card-title {
-  font-size: 0.95rem; font-weight: 600; text-transform: uppercase;
+  font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
   letter-spacing: 1.5px; color: var(--ink);
 }
-.stat-card-sub { font-size: 0.95rem; color: var(--muted); margin: 4px 0 8px; }
+.stat-card-sub { font-size: 0.85rem; color: var(--muted); margin: 4px 0 8px; }
 .stats-note {
-  font-size: 0.9rem; color: var(--muted); line-height: 1.6; margin-top: 24px;
+  font-size: 0.8rem; color: var(--muted); line-height: 1.6; margin-top: 24px;
   border-top: 1px solid var(--border); padding-top: 14px; max-width: 760px;
 }
 @media (max-width: 900px) {
   .kpi-row { grid-template-columns: 1fr 1fr; }
   .stats-grid { grid-template-columns: 1fr; }
   .stats-inner { padding: 20px 16px 48px; }
-  .stats-h2 { font-size: 1.7rem; }
+  .stats-h2 { font-size: 1.5rem; }
 }
 )"
